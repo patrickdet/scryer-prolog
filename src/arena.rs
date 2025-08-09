@@ -628,16 +628,6 @@ impl ArenaAllocated for TcpListener {
     }
 }
 
-#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-impl ArenaAllocated for HttpListener {
-    type Payload = Self;
-    #[inline]
-    fn tag() -> ArenaHeaderTag {
-        ArenaHeaderTag::HttpListener
-    }
-}
-
-#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
 impl ArenaAllocated for HttpListener {
     type Payload = Self;
     #[inline]
