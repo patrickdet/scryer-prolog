@@ -1,17 +1,10 @@
 package scryer:prolog-cli@0.1.0;
 
-// CLI interface that provides the main entry point
-interface cli-interface {
-    // Main entry point for the CLI
-    // Takes command line arguments and returns an exit code
-    run: func(args: list<string>) -> result<u32, string>;
-}
-
-// World that imports the Scryer Prolog core and exports the CLI interface
+// World that imports the Scryer Prolog core and extends wasi:cli/command
 world scryer-cli {
+    // Include all WASI CLI command world imports/exports
+    include wasi:cli/command@0.2.0;
+    
     // Import the Scryer Prolog core functionality
     import scryer:prolog/core@0.9.4;
-
-    // Export the CLI interface
-    export cli-interface;
 }

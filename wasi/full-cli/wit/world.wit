@@ -1,0 +1,7 @@
+package scryer:prolog-full-cli@0.1.0;
+
+// A simple world that imports the Scryer Prolog core
+world cli {
+    // Import the Scryer Prolog core
+    import scryer:prolog/core@0.9.4;
+}

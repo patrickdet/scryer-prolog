@@ -3,3 +3,6 @@
 
 # Reference the library component's WIT interface
 scryer-prolog = { path = "../../wit" }
+
+# WASI CLI dependency for command world
+wasi-cli = "0.2.0"
