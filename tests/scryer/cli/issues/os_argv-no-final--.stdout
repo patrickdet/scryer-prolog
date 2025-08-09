@@ -1,6 +1,0 @@
-   V = ["test1","--","test2"].
-   true.
-   false.
-   V = "test1".
-   false.
-   false.

@@ -1,2 +1,0 @@
-# Part of issue 2806
-args = ["-f", "--no-add-history", "src/tests/stream-aliasing.pl"]

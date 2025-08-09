@@ -1,0 +1,591 @@
+services:
+  # Main build service for both library and CLI WASI components
+  build:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      # Cargo configuration
+      - CARGO_HOME=/usr/local/cargo
+      - CARGO_INCREMENTAL=0
+      - CARGO_NET_GIT_FETCH_WITH_CLI=true
+      - RUST_BACKTRACE=1
+      - CARGO_BUILD_TARGET=wasm32-wasip2
+      # WASM compilation configuration
+      - CC_wasm32_wasip2=clang
+      - AR_wasm32_wasip2=llvm-ar
+      - CFLAGS_wasm32_wasip2=-O3
+    command: |
+      bash -c "
+        set -e
+        echo '=== WASI Component Build ==='
+
+        # Build library component
+        echo 'Building library component...'
+        cargo build --target wasm32-wasip2 --profile=wasi-release --no-default-features --features=wasi-component
+
+        # Create component from the built wasm module
+        echo 'Creating library component...'
+        wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+          -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+
+        # Build CLI component
+        echo 'Building CLI component...'
+        cd wasi/cli-component
+        wit-deps update
+        cargo build --target wasm32-wasip2 --release
+
+        # Create component
+        wasm-tools component new target/wasm32-wasip2/release/scryer_prolog_cli.wasm \
+          -o target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        cd ../..
+
+        # Compose components
+        echo 'Composing components...'
+        wasm-tools compose \
+          target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
+          --plug wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm \
+          -o target/scryer-prolog-cli.wasm
+
+        # Validate
+        wasm-tools validate target/scryer-prolog-cli.wasm
+
+        echo '=== Build complete! ==='
+        ls -lh target/scryer-prolog-cli.wasm
+      '
+      "
+
+  # Development build (with debug info)
+  build-dev:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - CARGO_INCREMENTAL=1
+      - CARGO_NET_GIT_FETCH_WITH_CLI=true
+      - RUST_BACKTRACE=1
+      - CARGO_BUILD_TARGET=wasm32-wasip2
+      - CC_wasm32_wasip2=clang
+      - AR_wasm32_wasip2=llvm-ar
+    command: |
+      bash -c "
+        set -e
+        echo '=== Development Build ==='
+
+        # Dependencies are pre-installed in the custom image
+
+        # Build with dev profile
+        echo '=== Building library component (dev) ==='
+        cargo build \
+          --target wasm32-wasip2 \
+          --profile=wasi-dev \
+          --no-default-features \
+          --features=wasi-component
+
+        # Create component
+        wasm-tools component new target/wasm32-wasip2/wasi-dev/scryer_prolog.wasm \
+          -o target/wasm32-wasip2/wasi-dev/scryer_prolog_component.wasm
+
+        echo '=== Building CLI component (dev) ==='
+        cd wasi/cli-component
+        wit-deps update
+        cargo build --target wasm32-wasip2
+
+        # Create component
+        wasm-tools component new target/wasm32-wasip2/debug/scryer_prolog_cli.wasm \
+          -o target/wasm32-wasip2/debug/scryer_prolog_cli_component.wasm
+        cd ../..
+
+        # Compose
+        wasm-tools compose \
+          target/wasm32-wasip2/wasi-dev/scryer_prolog_component.wasm \
+          --plug wasi/cli-component/target/wasm32-wasip2/debug/scryer_prolog_cli_component.wasm \
+          -o target/scryer-prolog-cli-dev.wasm
+
+        echo '=== Dev build complete! ==='
+        ls -lh target/scryer-prolog-cli-dev.wasm
+      "
+
+  # Test the built WASI components
+  test:
+    image: ghcr.io/bytecodealliance/wasmtime:latest
+    volumes:
+      - ./target:/target:ro
+      - ./wasi/cli-component/examples:/examples:ro
+      - ./library:/library:ro
+    working_dir: /examples
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    command: |
+      bash -c '
+        set -e
+        echo "=== Testing Scryer Prolog CLI Component ==="
+
+        CLI_WASM=/target/scryer-prolog-cli.wasm
+        if [ ! -f "$CLI_WASM" ]; then
+          echo "Error: CLI component not found. Run \"docker compose run build\" first."
+          exit 1
+        fi
+
+        # Test suite
+        echo "1. Testing version flag:"
+        wasmtime run "$CLI_WASM" -- -v
+        echo
+
+        echo "2. Testing help flag:"
+        wasmtime run "$CLI_WASM" -- -h
+        echo
+
+        echo "3. Testing simple query:"
+        wasmtime run "$CLI_WASM" -- -q "member(X, [1,2,3])."
+        echo
+
+        echo "4. Testing arithmetic:"
+        wasmtime run "$CLI_WASM" -- -q "X is 2 + 3 * 4."
+        echo
+
+        echo "5. Testing piped input:"
+        echo "append([1,2], [3,4], X)." | wasmtime run "$CLI_WASM"
+        echo
+
+        echo "6. Testing file loading:"
+        if [ -f family.pl ]; then
+          wasmtime run --dir=. "$CLI_WASM" -- -f family.pl -q "parent(tom, X)."
+        else
+          echo "Creating test file..."
+          cat > /tmp/test.pl << "EOF"
+        fact(0, 1).
+        fact(N, F) :- N > 0, N1 is N - 1, fact(N1, F1), F is N * F1.
+        EOF
+          wasmtime run --dir=/tmp "$CLI_WASM" -- -f /tmp/test.pl -q "fact(5, X)."
+        fi
+        echo
+
+        echo "=== All tests passed! ==="
+      '
+
+  # Interactive REPL
+  repl:
+    image: ghcr.io/bytecodealliance/wasmtime:latest
+    volumes:
+      - ./target:/target:ro
+      - ./examples:/examples:ro
+      - ./library:/library:ro
+    working_dir: /examples
+    stdin_open: true
+    tty: true
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    command: run --dir=. --dir=/library /target/scryer-prolog-cli.wasm
+
+  # Development shell with all tools installed
+  dev:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+    stdin_open: true
+    tty: true
+    command: |
+      bash -c '
+        echo "=== Development Environment ==="
+        echo "All WASI build tools are pre-installed"
+        echo
+        echo "Quick commands:"
+        echo "  Build all: cargo component build --profile=wasi-release --no-default-features --features=wasi-component"
+        echo "  Build CLI: cd wasi/cli-component && cargo component build --release"
+        echo "  Compose: wasm-tools compose <library.wasm> --plug <cli.wasm> -o <output.wasm>"
+        echo
+        exec bash
+      '
+
+  # Validate WIT files
+  validate-wit:
+    image: rust:1.85-bookworm
+    volumes:
+      - .:/workspace:ro
+    working_dir: /workspace
+    command: |
+      sh -c '
+        set -e
+        echo "=== Installing wasm-tools ==="
+        export CARGO_HOME=/tmp/cargo
+        export PATH="/tmp/cargo/bin:$PATH"
+        cargo install wasm-tools --version 1.223.0 --root /tmp/cargo
+
+        echo
+        echo "=== Validating WIT files ==="
+
+        # Check library WIT
+        echo "1. Library component WIT (wasi/wit/scryer-prolog.wit):"
+        if [ -f wasi/wit/scryer-prolog.wit ]; then
+          if wasm-tools component wit wasi/wit/scryer-prolog.wit >/dev/null 2>&1; then
+            echo "✓ Valid"
+          else
+            echo "✗ Invalid:"
+            wasm-tools component wit wasi/wit/scryer-prolog.wit 2>&1 || true
+          fi
+        else
+          echo "✗ Not found"
+        fi
+
+        # Check CLI WIT
+        echo
+        echo "2. CLI component WIT (wasi/cli-component/wit/cli.wit):"
+        if [ -f wasi/cli-component/wit/cli.wit ]; then
+          if wasm-tools component wit wasi/cli-component/wit/cli.wit >/dev/null 2>&1; then
+            echo "✓ Valid"
+          else
+            echo "✗ Invalid:"
+            wasm-tools component wit wasi/cli-component/wit/cli.wit 2>&1 || true
+          fi
+        else
+          echo "✗ Not found"
+        fi
+
+        echo
+        echo "=== WIT validation complete ==="
+      '
+
+  # Performance benchmark
+  benchmark:
+    image: ghcr.io/bytecodealliance/wasmtime:latest
+    volumes:
+      - ./target:/target:ro
+    depends_on:
+      build:
+        condition: service_completed_successfully
+    command: |
+      bash -c '
+        echo "=== Performance Benchmark ==="
+
+        cat << "EOF" > /tmp/bench.pl
+        factorial(0, 1) :- !.
+        factorial(N, F) :-
+            N > 0,
+            N1 is N - 1,
+            factorial(N1, F1),
+            F is N * F1.
+
+        bench :-
+            statistics(runtime, [T0|_]),
+            bench_loop(1000),
+            statistics(runtime, [T1|_]),
+            Time is (T1 - T0) / 1000,
+            format("Time: ~3f seconds~n", [Time]).
+
+        bench_loop(0) :- !.
+        bench_loop(N) :-
+            factorial(20, _),
+            N1 is N - 1,
+            bench_loop(N1).
+
+        :- bench, halt.
+        EOF
+
+        echo "Computing factorial(20) 1000 times..."
+        time wasmtime run --dir=/tmp /target/scryer-prolog-cli.wasm -- -f /tmp/bench.pl
+      '
+
+  # Build only the library component
+  build-library:
+    extends: build
+    command: |
+      bash -c '
+        set -e
+        echo "=== Building Library Component Only ==="
+
+        # Build library
+        cargo build \
+          --target wasm32-wasip2 \
+          --profile=wasi-release \
+          --no-default-features \
+          --features=wasi-component
+
+        # Create component
+        echo "Creating WASI component..."
+        wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+          -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+
+        echo "=== Library component built ==="
+        ls -lh target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+      '
+
+  # Build only the CLI component
+  build-cli:
+    extends: build
+    command: |
+      bash -c "
+        set -e
+        echo '=== Building CLI Component Only ==='
+
+        # Dependencies are pre-installed in the custom image
+
+        # Build CLI
+        cd wasi/cli-component
+        wit-deps update
+        cargo build --target wasm32-wasip2 --release
+
+        # Check if already a component
+        if wasm-tools validate target/wasm32-wasip2/release/scryer_prolog_cli.wasm --features component-model 2>/dev/null; then
+          echo 'Output is already a component, copying as-is'
+          cp target/wasm32-wasip2/release/scryer_prolog_cli.wasm target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        else
+          echo 'Creating component from module'
+          wasm-tools component new target/wasm32-wasip2/release/scryer_prolog_cli.wasm \
+            -o target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        fi
+
+        echo '=== CLI component built ==='
+        ls -lh target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+      "
+
+  # Clean build artifacts
+  clean:
+    image: busybox
+    volumes:
+      - .:/workspace:rw
+      - target-cache:/target-cache
+    working_dir: /workspace
+    command: |
+      sh -c "
+        echo '=== Cleaning build artifacts ==='
+        rm -rf target/wasm32-wasip2 target/*.wasm target/wasi-component
+        rm -rf wasi/cli-component/target
+        echo '✓ Clean complete'
+      "
+
+  # Simple test build to verify basic setup
+  test-build:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - RUST_BACKTRACE=1
+      - CARGO_BUILD_TARGET=wasm32-wasip2
+      - CC_wasm32_wasip2=clang
+      - AR_wasm32_wasip2=llvm-ar
+    command: |
+      bash -c '
+        set -e
+        echo "=== Simple Test Build ==="
+
+        # Dependencies are pre-installed in the custom image
+        echo "Verifying environment..."
+        clang --version
+        cargo-component --version
+
+        # Try building library component
+        echo "Building library component..."
+        cargo build --target wasm32-wasip2 --profile=wasi-release --no-default-features --features=wasi-component
+
+        # Create component
+        wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+          -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+
+        echo "Build test complete!"
+      '
+
+  # Low memory build service
+  build-lowmem:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - CARGO_BUILD_JOBS=1
+      - CARGO_INCREMENTAL=0
+      - RUST_BACKTRACE=1
+      - CARGO_BUILD_TARGET=wasm32-wasip2
+      - CC_wasm32_wasip2=clang
+      - AR_wasm32_wasip2=llvm-ar
+    command: |
+      bash -c '
+        set -e
+        echo "=== Low Memory WASI Build ==="
+        echo "Using reduced parallelism to avoid memory issues"
+        echo
+
+        # Dependencies are pre-installed in the custom image
+        echo "✓ Build environment ready"
+
+        # Build library component with limited jobs
+        echo
+        echo "Building library component (low memory mode)..."
+        CARGO_BUILD_JOBS=1 cargo build \
+          --target wasm32-wasip2 \
+          --profile=wasi-release \
+          --no-default-features \
+          --features=wasi-component \
+          --jobs 1
+
+        # Check if output is already a component
+        if wasm-tools validate target/wasm32-wasip2/wasi-release/scryer_prolog.wasm --features component-model 2>/dev/null; then
+          echo "Output is already a component, skipping component creation"
+          cp target/wasm32-wasip2/wasi-release/scryer_prolog.wasm target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+        else
+          echo "Creating component from module"
+          wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+            -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+        fi
+
+        # Build CLI component
+        echo
+        echo "Building CLI component (low memory mode)..."
+        cd wasi/cli-component
+        wit-deps update >/dev/null 2>&1
+        CARGO_BUILD_JOBS=1 cargo build --target wasm32-wasip2 --release --jobs 1
+
+        # Check if output is already a component
+        if wasm-tools validate target/wasm32-wasip2/release/scryer_prolog_cli.wasm --features component-model 2>/dev/null; then
+          echo "CLI output is already a component, skipping component creation"
+          cp target/wasm32-wasip2/release/scryer_prolog_cli.wasm target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        else
+          echo "Creating CLI component from module"
+          wasm-tools component new target/wasm32-wasip2/release/scryer_prolog_cli.wasm \
+            -o target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        fi
+
+        if [ -f target/wasm32-wasip2/release/scryer_prolog_cli.wasm ]; then
+          echo "✓ CLI component built"
+          ls -lh target/wasm32-wasip2/release/scryer_prolog_cli.wasm
+        else
+          echo "✗ CLI build failed"
+          exit 1
+        fi
+
+        cd ../..
+
+        # Compose components
+        echo
+        echo "Composing components..."
+        wasm-tools compose \
+          target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
+          --plug wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm \
+          -o target/scryer-prolog-cli.wasm
+
+        echo
+        echo "=== Low memory build completed successfully! ==="
+        echo "Output: target/scryer-prolog-cli.wasm"
+        ls -lh target/scryer-prolog-cli.wasm
+      '
+
+  # Quick build - minimal output, fast execution
+  quick-build:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:rw
+      - cargo-cache:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-cache:/workspace/target
+    working_dir: /workspace
+    environment:
+      - CARGO_HOME=/usr/local/cargo
+      - CARGO_BUILD_TARGET=wasm32-wasip2
+    command: |
+      bash -c '
+        echo "Building WASI components..."
+
+        # Library
+        cargo build --target wasm32-wasip2 --profile=wasi-release --no-default-features --features=wasi-component --quiet
+        wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+          -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+
+        # CLI
+        cd wasi/cli-component
+        wit-deps update >/dev/null 2>&1
+        cargo build --target wasm32-wasip2 --release --quiet
+        wasm-tools component new target/wasm32-wasip2/release/scryer_prolog_cli.wasm \
+          -o target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
+        cd ../..
+
+        # Compose
+        wasm-tools compose \
+          target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
+          --plug wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm \
+          -o target/scryer-prolog-cli.wasm
+
+        echo "✓ Build complete: target/scryer-prolog-cli.wasm"
+      '
+
+  # Test WASI components with wasmtime
+  test-wasi:
+    build:
+      context: ./wasi
+      dockerfile: Dockerfile
+    image: scryer-wasi-builder:latest
+    volumes:
+      - .:/workspace:ro
+      - ./wasi/cli-component/examples:/examples:ro
+      - ./library:/library:ro
+    working_dir: /workspace
+    command: |
+      bash -c '
+        set -e
+        echo "=== Testing WASI Components with Wasmtime ==="
+
+        # Test CLI component help
+        echo "Testing CLI component --help:"
+        wasmtime run wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm -- --help
+        echo
+
+        # Test CLI component version
+        echo "Testing CLI component --version:"
+        wasmtime run wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm -- --version
+        echo
+
+        # Test library component (if it has exports)
+        echo "Library component info:"
+        wasm-tools component wit target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm | head -20
+        echo
+
+        echo "=== Tests completed ==="
+      '
+
+volumes:
+  cargo-cache:
+  cargo-git:
+  target-cache:

@@ -321,6 +321,40 @@ $> docker run -v C:\Users\user\Documents\prolog:/mnt -it mjt128/scryer-prolog
 true.
 ```
 
+## WebAssembly (WASI) Support
+
+Scryer Prolog can be compiled to WebAssembly and run as a WASI (WebAssembly System Interface) component. This enables running Prolog programs in WebAssembly runtimes, web browsers, and cloud environments.
+
+### WASI Components
+
+Scryer Prolog provides two WASI components:
+
+1. **Library Component** (`scryer:prolog/core`) - The core Prolog engine as a reusable component
+2. **CLI Component** (`scryer:prolog-cli`) - A command-line interface wrapper for interactive use
+
+All WASI-related code is organized in the `wasi/` directory. See [wasi/README.md](wasi/README.md) for detailed documentation.
+
+### Quick Start
+
+To build and run the WASI CLI:
+
+```bash
+# Build everything
+cd wasi/
+./build.sh
+
+# Run the CLI
+wasmtime run ../target/scryer-prolog-cli.wasm
+
+# Execute a query
+wasmtime run ../target/scryer-prolog-cli.wasm -- -q "member(X, [1,2,3])."
+```
+
+For more information about WASI support, see:
+- [WASI Build Guide](WASI_BUILD_GUIDE.md) - Detailed build instructions
+- [WASI Component Documentation](docs/wasi-component.md) - Component architecture and usage
+- [wasi/](wasi/) - WASI source code and components
+
 ## Tutorial
 
 Prolog files are loaded by specifying them as arguments on the command

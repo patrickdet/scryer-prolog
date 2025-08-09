@@ -1,0 +1,5 @@
+# wit/deps.toml
+# Dependency manifest for scryer-prolog CLI component
+
+# Reference the library component's WIT interface
+scryer-prolog = { path = "../../wit" }

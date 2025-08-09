@@ -8,12 +8,12 @@ use num_order::NumOrd;
 
 use crate::arena::*;
 use crate::atom_table::*;
-#[cfg(feature = "ffi")]
+#[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
 use crate::ffi::*;
 use crate::forms::*;
 use crate::heap_iter::*;
 use crate::heap_print::*;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use crate::http::{HttpListener, HttpRequest, HttpRequestData, HttpResponse};
 use crate::instructions::*;
 use crate::machine;
@@ -43,21 +43,21 @@ use std::cell::Cell;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::env;
-#[cfg(feature = "ffi")]
+#[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
 use std::ffi::CString;
 use std::fs;
 use std::hash::{BuildHasher, BuildHasherDefault};
 use std::io::{ErrorKind, Read, Write};
 use std::iter::{once, FromIterator};
 use std::mem;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::net::{TcpListener, TcpStream};
 use std::num::NonZeroU32;
 use std::process;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::str::FromStr;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use std::sync::{Arc, Condvar, Mutex};
 
 use chrono::{offset::Local, DateTime};
@@ -65,9 +65,9 @@ use chrono::{offset::Local, DateTime};
 use cpu_time::ProcessTime;
 use std::time::{Duration, SystemTime};
 
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 
 use blake2::{Blake2b512, Blake2s256};
@@ -81,23 +81,23 @@ use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 
 use crrl::{ed25519, secp256k1, x25519};
 
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 use native_tls::{Identity, TlsAcceptor, TlsConnector};
 
 use base64;
 use roxmltree;
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use futures::future;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use reqwest::Url;
 use tokio::runtime::Handle;
 use tokio::task;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use warp::hyper::header::{HeaderName, HeaderValue};
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use warp::hyper::{HeaderMap, Method};
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use warp::{Buf, Filter};
 
 use super::libraries;
@@ -148,7 +148,7 @@ impl ModuleQuantification {
     }
 }
 
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 pub(crate) fn get_key() -> KeyEvent {
     let key;
     enable_raw_mode().expect("failed to enable raw mode");
@@ -3775,7 +3775,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "repl")]
+    #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn get_single_char(&mut self) -> CallResult {
         let key = get_key();
@@ -3800,7 +3800,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(not(feature = "repl"))]
+    #[cfg(not(all(feature = "repl", not(target_arch = "wasm32"))))]
     #[inline(always)]
     pub(crate) fn get_single_char(&mut self) -> CallResult {
         let mut buffer = [0; 1];
@@ -4266,7 +4266,7 @@ impl Machine {
             .unify_f64(secs, self.machine_st.registers[1]);
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     #[inline(always)]
     pub(crate) fn cpu_now(&mut self) {
         let millisecs = web_sys::window()
@@ -4276,6 +4276,20 @@ impl Machine {
             .now();
         let secs = float_alloc!(millisecs / 1000.0, self.machine_st.arena);
 
+        self.machine_st.unify_f64(secs, self.deref_register(1));
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    #[inline(always)]
+    pub(crate) fn cpu_now(&mut self) {
+        // WASI doesn't have CPU time measurement, use wall clock time instead
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+
+        let secs = float_alloc!(duration.as_secs_f64(), self.machine_st.arena);
         self.machine_st.unify_f64(secs, self.deref_register(1));
     }
 
@@ -4314,7 +4328,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn http_open(&mut self) -> CallResult {
         let address_sink = self.deref_register(1);
@@ -4454,7 +4468,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn http_listen(&mut self) -> CallResult {
         let address_sink = self.deref_register(1);
@@ -4598,7 +4612,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn http_accept(&mut self) -> CallResult {
         let culprit = self.deref_register(1);
@@ -4710,7 +4724,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn http_answer(&mut self) -> CallResult {
         let culprit = self.deref_register(1);
@@ -4785,7 +4799,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "ffi")]
+    #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn load_foreign_lib(&mut self) -> CallResult {
         let library_name = self.deref_register(1);
@@ -4836,7 +4850,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "ffi")]
+    #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn foreign_call(&mut self) -> CallResult {
         let function_name = self.deref_register(1);
@@ -4924,7 +4938,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "ffi")]
+    #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
     fn build_struct(&mut self, name: &str, mut args: Vec<Value>) -> HeapCellValue {
         args.insert(0, Value::CString(CString::new(name).unwrap()));
         let cells: Vec<_> = args
@@ -4946,7 +4960,7 @@ impl Machine {
         ))
     }
 
-    #[cfg(feature = "ffi")]
+    #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn define_foreign_struct(&mut self) -> CallResult {
         let struct_name = self.deref_register(1);
@@ -4971,13 +4985,21 @@ impl Machine {
         Ok(())
     }
 
+    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    #[inline(always)]
+    pub(crate) fn js_eval(&mut self) -> CallResult {
+        // JavaScript evaluation is not available in WASI
+        self.machine_st.fail = true;
+        Ok(())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[inline(always)]
     pub(crate) fn js_eval(&mut self) -> CallResult {
         unimplemented!()
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     #[inline(always)]
     pub(crate) fn js_eval(&mut self) -> CallResult {
         let code = self.deref_register(1);
@@ -4993,7 +5015,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     fn unify_js_value(&mut self, result: wasm_bindgen::JsValue, result_reg: HeapCellValue) {
         match result.as_bool() {
             Some(result) => match result {
@@ -6699,7 +6721,7 @@ impl Machine {
         Ok(())
     }
 
-    #[cfg(feature = "tls")]
+    #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn tls_client_connect(&mut self) -> CallResult {
         if let Some(hostname) = self
@@ -6744,7 +6766,7 @@ impl Machine {
         }
     }
 
-    #[cfg(feature = "tls")]
+    #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
     #[inline(always)]
     pub(crate) fn tls_accept_client(&mut self) -> CallResult {
         let pkcs12 = self.string_encoding_bytes(self.machine_st.registers[1], atom!("octet"));

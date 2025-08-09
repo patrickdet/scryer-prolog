@@ -31,7 +31,7 @@ pub mod unify;
 use crate::arena::*;
 use crate::arithmetic::*;
 use crate::atom_table::*;
-#[cfg(feature = "ffi")]
+#[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
 use crate::ffi::ForeignFunctionTable;
 use crate::forms::*;
 use crate::instructions::*;
@@ -78,7 +78,7 @@ pub struct Machine {
     pub(super) user_output: Stream,
     pub(super) user_error: Stream,
     pub(super) load_contexts: Vec<LoadContext>,
-    #[cfg(feature = "ffi")]
+    #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
     pub(super) foreign_function_table: ForeignFunctionTable,
     pub(super) rng: StdRng,
 }

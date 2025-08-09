@@ -1,0 +1,226 @@
+wit_bindgen::generate!({
+    world: "scryer-cli",
+    path: "wit",
+});
+
+use crate::exports::wasi::cli::run::Guest;
+
+struct Component;
+
+impl Guest for Component {
+    fn run() -> Result<(), ()> {
+        // Get command line arguments
+        let args = wasi::cli::environment::get_arguments();
+
+        // Simple argument parsing
+        let mut help = false;
+        let mut version = false;
+        let mut query = None;
+        let mut files = Vec::new();
+
+        let mut i = 1; // Skip program name
+        while i < args.len() {
+            match args[i].as_str() {
+                "-h" | "--help" => help = true,
+                "-v" | "--version" => version = true,
+                "-q" | "--query" => {
+                    i += 1;
+                    if i < args.len() {
+                        query = Some(args[i].clone());
+                    }
+                }
+                "-f" | "--file" => {
+                    i += 1;
+                    if i < args.len() {
+                        files.push(args[i].clone());
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+
+        // Handle help
+        if help {
+            print_help();
+            return Ok(());
+        }
+
+        // Handle version
+        if version {
+            println!("Scryer Prolog CLI v0.1.0");
+            return Ok(());
+        }
+
+        // Create Prolog machine
+        let config = scryer::prolog::core::MachineConfig {
+            heap_size: None,
+            stack_size: None,
+        };
+        let machine = scryer::prolog::core::Machine::new(&config);
+
+        // Load files
+        for file in files {
+            match load_file(&machine, &file) {
+                Ok(_) => println!("Loaded: {}", file),
+                Err(e) => eprintln!("Error loading {}: {}", file, e),
+            }
+        }
+
+        // Execute query if provided
+        if let Some(q) = query {
+            match execute_query(&machine, &q) {
+                Ok(_) => {}
+                Err(e) => eprintln!("Query error: {}", e),
+            }
+        } else {
+            // Run interactive REPL
+            run_repl(&machine)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn print_help() {
+    println!("Scryer Prolog CLI - WebAssembly Component Interface");
+    println!();
+    println!("USAGE:");
+    println!("    scryer-prolog-cli [OPTIONS]");
+    println!();
+    println!("OPTIONS:");
+    println!("    -f, --file <FILE>      Load Prolog file");
+    println!("    -q, --query <QUERY>    Execute query and exit");
+    println!("    -h, --help             Display this help");
+    println!("    -v, --version          Display version");
+}
+
+fn load_file(machine: &scryer::prolog::core::Machine, path: &str) -> Result<(), String> {
+    // Try to read the file
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
+
+    // Extract module name from filename
+    let module_name = std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("user");
+
+    machine
+        .consult_module_string(module_name, &content)
+        .map_err(|e| format!("Failed to consult: {}", e))
+}
+
+fn execute_query(machine: &scryer::prolog::core::Machine, query: &str) -> Result<(), String> {
+    let query_state = machine
+        .run_query(query)
+        .map_err(|e| format!("Query failed: {}", e))?;
+
+    let mut found_solution = false;
+
+    loop {
+        match query_state.next().map_err(|e| format!("Error: {}", e))? {
+            Some(solution) => {
+                found_solution = true;
+                match solution {
+                    scryer::prolog::core::Solution::True => {
+                        println!("true.");
+                        break;
+                    }
+                    scryer::prolog::core::Solution::False => {
+                        println!("false.");
+                        break;
+                    }
+                    scryer::prolog::core::Solution::Exception(msg) => {
+                        println!("ERROR: {}", msg);
+                        break;
+                    }
+                    scryer::prolog::core::Solution::Bindings(bindings) => {
+                        let vars = bindings.variables();
+                        if vars.is_empty() {
+                            println!("true.");
+                        } else {
+                            for (i, var) in vars.iter().enumerate() {
+                                if i > 0 {
+                                    print!(", ");
+                                }
+                                if let Some(term) = bindings.get_binding(var) {
+                                    print!("{} = {}", var, term.to_string());
+                                }
+                            }
+                            println!();
+                        }
+                    }
+                }
+            }
+            None => {
+                if !found_solution {
+                    println!("false.");
+                }
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_repl(machine: &scryer::prolog::core::Machine) -> Result<(), String> {
+    println!("Scryer Prolog v0.9.4 (WASI Component)");
+    println!("Type 'halt.' or Ctrl+D to exit.");
+    println!();
+
+    let stdin = wasi::cli::stdin::get_stdin();
+    let stdout = wasi::cli::stdout::get_stdout();
+
+    loop {
+        // Print prompt
+        stdout.blocking_write_and_flush(b"?- ").unwrap();
+
+        // Read line
+        let mut input = String::new();
+        let mut buffer = vec![0u8; 1024];
+
+        loop {
+            match stdin.blocking_read(buffer.len() as u64) {
+                Ok(bytes) => {
+                    if bytes.is_empty() {
+                        // EOF
+                        println!();
+                        return Ok(());
+                    }
+
+                    let chunk = String::from_utf8_lossy(&bytes[..bytes.len()]);
+                    input.push_str(&chunk);
+
+                    if input.contains('\n') {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    return Err("Failed to read input".to_string());
+                }
+            }
+        }
+
+        let input = input.trim();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        if input == "halt." {
+            break;
+        }
+
+        // Execute query
+        match execute_query(machine, input) {
+            Ok(_) => {}
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+
+    Ok(())
+}
+
+export!(Component);

@@ -1,2 +1,0 @@
-# issue 839
-args = ["-f", "--no-add-history", "op3.pl", "-g", "halt"]

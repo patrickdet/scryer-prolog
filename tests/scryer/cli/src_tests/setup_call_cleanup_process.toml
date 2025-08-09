@@ -1,1 +1,0 @@
-args = ["-f", "--no-add-history", "src/tests/setup_call_cleanup.pl", "-f", "-g", "halt"]

@@ -18,12 +18,13 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["ffi", "repl", "hostname", "tls", "http", "crypto-full"]
-ffi = ["dep:libffi"]
+ffi = ["dep:libffi", "dep:libloading"]
 repl = ["dep:crossterm", "dep:ctrlc", "dep:rustyline"]
 hostname = ["dep:hostname"]
 tls = ["dep:native-tls"]
 http = ["dep:warp", "dep:reqwest"]
 crypto-full = []
+wasi-component = ["dep:wasi", "dep:wit-bindgen"]
 
 [build-dependencies]
 indexmap = "2.3.0"
@@ -35,6 +36,7 @@ syn = { version = "2.0.72", features = ['full', 'visit', 'extra-traits'] }
 to-syn-value = "0.1.1"
 to-syn-value_derive = "0.1.1"
 walkdir = "2"
+
 
 [dependencies]
 arcu = { version = "0.1.2", features = ["thread_local_counter"] }
@@ -57,7 +59,7 @@ indexmap = "2.3.0"
 lazy_static = "1.5.0"
 lexical = "7.0.4"
 libc = "0.2.155"
-libloading = "0.8"
+
 scryer-modular-bitfield = "0.11.4"
 num-order = { version = "1.2.0" }
 ordered-float = "5.0.0"
@@ -72,7 +74,7 @@ smallvec = "1.13.2"
 static_assertions = "1.1.0"
 
 scraper = { version = "0.23.1", default-features = false, features = [
-    "errors",
+  "errors",
 ] }
 ego-tree = "0.10.0"
 
@@ -85,6 +87,7 @@ crossterm = { version = "0.28.1", optional = true }
 ctrlc = { version = "3.4.4", optional = true }
 hostname = { version = "0.4.0", optional = true }
 libffi = { version = "4.0.0", optional = true }
+libloading = { version = "0.8", optional = true }
 native-tls = { version = "0.2.12", optional = true }
 # the version requirement of reqwest is kept low for compatibility with old deno versions
 # that pin reqwest to 0.11.20
@@ -96,11 +99,11 @@ warp = { version = "0.3.7", features = ["tls"], optional = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2.15", features = ["js"] }
 tokio = { version = "1.39.2", features = [
-    "sync",
-    "macros",
-    "io-util",
-    "rt",
-    "time",
+  "sync",
+  "macros",
+  "io-util",
+  "rt",
+  "time",
 ] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
@@ -109,13 +112,17 @@ wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4"
 serde-wasm-bindgen = "0.6"
 web-sys = { version = "0.3", features = [
-    "Document",
-    "Window",
-    "Element",
-    "Performance",
+  "Document",
+  "Window",
+  "Element",
+  "Performance",
 ] }
 js-sys = "0.3"
 ouroboros = "0.18"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "wasi"))'.dependencies]
+wasi = { version = "0.14", optional = true }
+wit-bindgen = { version = "0.42", optional = true }
 
 [dev-dependencies]
 maplit = "1.0.2"
@@ -147,6 +154,19 @@ inherits = "release"
 lto = "off"
 panic = "abort"
 codegen-units = 256
+
+[profile.wasi-dev]
+inherits = "dev"
+opt-level = 2
+lto = "thin"
+
+[profile.wasi-release]
+inherits = "release"
+lto = "thin"           # Changed from "fat" to fix memory explosion during compilation
+opt-level = "z"        # Optimize for size, not speed
+codegen-units = 1      # Better optimization, single compilation unit
+strip = true           # Strip symbols
+panic = "abort"        # Smaller binary, no unwinding
 
 [[bench]]
 name = "run_criterion"
