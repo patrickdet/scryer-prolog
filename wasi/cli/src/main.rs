@@ -89,23 +89,9 @@ fn main() {
     
     let machine = Machine::new(config);
     
-    // Load essential libraries for better user experience
-    // These are commonly used predicates that users expect to be available
-    let essential_libs = [
-        ("lists", include_str!("../../../src/lib/lists.pl")),
-        ("between", include_str!("../../../src/lib/between.pl")),
-        ("dcgs", include_str!("../../../src/lib/dcgs.pl")),
-        ("dif", include_str!("../../../src/lib/dif.pl")),
-        ("iso_ext", include_str!("../../../src/lib/iso_ext.pl")),
-        ("si", include_str!("../../../src/lib/si.pl")),
-        ("error", include_str!("../../../src/lib/error.pl")),
-    ];
-    
-    for (name, content) in &essential_libs {
-        if let Err(e) = machine.consult_module_string(name, content) {
-            eprintln!("Warning: Failed to load library {}: {}", name, e);
-        }
-    }
+    // Note: Libraries are not auto-loaded due to memory constraints in WASI
+    // Users should load libraries explicitly using use_module/1
+    // For example: use_module(library(between))
 
     // Load files
     for file_path in &files {
@@ -156,10 +142,14 @@ fn print_help() {
     println!("    -q, --query <QUERY>    Execute a query and exit");
     println!("    -f, --file <FILE>      Load a Prolog file before running");
     println!();
+    println!("NOTE:");
+    println!("    Libraries must be loaded explicitly using use_module/1.");
+    println!("    Example: use_module(library(between)), between(1, 5, X).");
+    println!();
     println!("EXAMPLES:");
-    println!("    scryer-prolog \"member(X, [1,2,3]).\"");
+    println!("    scryer-prolog -q \"assertz(parent(tom, bob)), parent(tom, X).\"");
+    println!("    scryer-prolog -q \"use_module(library(between)), between(1, 5, X).\"");
     println!("    scryer-prolog -f facts.pl -q \"parent(john, X).\"");
-    println!("    scryer-prolog -f program.pl  # Load and enter REPL");
 }
 
 fn print_version() {
@@ -205,6 +195,7 @@ fn execute_query(machine: &Machine, query_str: &str) {
 fn run_repl(machine: &Machine) {
     println!("Scryer Prolog v0.9.4 (WASI Component)");
     println!("Type queries followed by '.' or 'exit.' to quit");
+    println!("Note: Load libraries with: use_module(library(name)).");
     println!();
     
     let stdin = io::stdin();
@@ -215,8 +206,10 @@ fn run_repl(machine: &Machine) {
         stdout.flush().unwrap();
         
         let mut input = String::new();
-        if stdin.read_line(&mut input).is_err() {
-            break;
+        match stdin.read_line(&mut input) {
+            Ok(0) => break, // EOF
+            Ok(_) => {},
+            Err(_) => break,
         }
         
         let input = input.trim();
@@ -239,50 +232,11 @@ fn run_repl(machine: &Machine) {
         // Execute the query
         match machine.run_query(&query) {
             Ok(query_state) => {
-                let mut found_solution = false;
-                
-                // Get first solution
+                // Get first solution only to avoid memory issues
                 match query_state.next() {
                     Ok(Some(solution)) => {
-                        found_solution = true;
                         print_solution(solution);
-                        
-                        // In REPL, offer to find more solutions
-                        print!(" ");
-                        stdout.flush().unwrap();
-                        
-                        let mut response = String::new();
-                        if stdin.read_line(&mut response).is_ok() {
-                            let response = response.trim();
-                            if response == ";" || response.is_empty() {
-                                // User wants more solutions
-                                loop {
-                                    match query_state.next() {
-                                        Ok(Some(sol)) => {
-                                            print_solution(sol);
-                                            print!(" ");
-                                            stdout.flush().unwrap();
-                                            
-                                            let mut resp = String::new();
-                                            if stdin.read_line(&mut resp).is_err() {
-                                                break;
-                                            }
-                                            if resp.trim() != ";" && !resp.trim().is_empty() {
-                                                break;
-                                            }
-                                        }
-                                        Ok(None) => {
-                                            println!(".");
-                                            break;
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Error: {}", e);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        println!(".");
                     }
                     Ok(None) => {
                         println!("false.");
@@ -296,7 +250,6 @@ fn run_repl(machine: &Machine) {
                 eprintln!("Failed to run query: {}", e);
             }
         }
-        println!();
     }
 }
 
