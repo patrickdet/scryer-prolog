@@ -1,6 +1,0 @@
-# wit-deps managed dependencies
-deps/
-!deps.toml
-
-# wit-deps lock file
-deps.lock

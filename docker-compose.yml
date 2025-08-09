@@ -31,34 +31,33 @@ services:
         echo 'Building library component...'
         cargo build --target wasm32-wasip2 --profile=wasi-release --no-default-features --features=wasi-component
 
-        # Create component from the built wasm module
+        # Check if it's already a component and copy accordingly
         echo 'Creating library component...'
-        wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
-          -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+        if wasm-tools validate target/wasm32-wasip2/wasi-release/scryer_prolog.wasm --features component-model 2>/dev/null; then
+          echo 'Output is already a component'
+          cp target/wasm32-wasip2/wasi-release/scryer_prolog.wasm target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+        else
+          wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
+            -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
+        fi
 
-        # Build CLI component
-        echo 'Building CLI component...'
-        cd wasi/cli-component
-        wit-deps update
+        # Build CLI
+        echo 'Building CLI...'
+        cd wasi/cli
         cargo build --target wasm32-wasip2 --release
-
-        # Create component
-        wasm-tools component new target/wasm32-wasip2/release/scryer_prolog_cli.wasm \
-          -o target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm
         cd ../..
 
-        # Compose components
-        echo 'Composing components...'
-        wasm-tools compose \
-          target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
-          --plug wasi/cli-component/target/wasm32-wasip2/release/scryer_prolog_cli_component.wasm \
-          -o target/scryer-prolog-cli.wasm
+        # Compose the CLI with the library component
+        echo 'Composing final WASI component...'
+        wasm-tools compose wasi/cli/target/wasm32-wasip2/release/scryer-prolog-full-cli.wasm \
+          -d target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
+          -o target/scryer-prolog.wasm
 
         # Validate
-        wasm-tools validate target/scryer-prolog-cli.wasm
+        wasm-tools validate target/scryer-prolog.wasm
 
         echo '=== Build complete! ==='
-        ls -lh target/scryer-prolog-cli.wasm
+        ls -lh target/scryer-prolog.wasm
       '
       "
 
