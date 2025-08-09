@@ -88,6 +88,24 @@ fn main() {
     };
     
     let machine = Machine::new(config);
+    
+    // Load essential libraries for better user experience
+    // These are commonly used predicates that users expect to be available
+    let essential_libs = [
+        ("lists", include_str!("../../../src/lib/lists.pl")),
+        ("between", include_str!("../../../src/lib/between.pl")),
+        ("dcgs", include_str!("../../../src/lib/dcgs.pl")),
+        ("dif", include_str!("../../../src/lib/dif.pl")),
+        ("iso_ext", include_str!("../../../src/lib/iso_ext.pl")),
+        ("si", include_str!("../../../src/lib/si.pl")),
+        ("error", include_str!("../../../src/lib/error.pl")),
+    ];
+    
+    for (name, content) in &essential_libs {
+        if let Err(e) = machine.consult_module_string(name, content) {
+            eprintln!("Warning: Failed to load library {}: {}", name, e);
+        }
+    }
 
     // Load files
     for file_path in &files {

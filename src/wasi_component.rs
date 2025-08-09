@@ -96,7 +96,8 @@ impl GuestMachine for MachineResource {
                 let _ = stack_size; // Suppress unused warning for now
             }
 
-            // Build machine - this is synchronous
+            // Build machine with bootstrap libraries loaded - this is synchronous
+            // The build() method already loads ops_and_meta_predicates and builtins
             let machine = builder.build();
             let machine_rc = Rc::new(RefCell::new(machine));
 
