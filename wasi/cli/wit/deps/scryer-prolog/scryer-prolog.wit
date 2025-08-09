@@ -1,0 +1,103 @@
+package scryer:prolog@0.9.4;
+
+interface core {
+    // Configuration for creating a machine instance
+    record machine-config {
+        heap-size: option<u64>,
+        stack-size: option<u64>,
+    }
+
+    // Main Prolog machine resource
+    resource machine {
+        constructor(config: machine-config);
+
+        // Load a Prolog module from a string
+        consult-module-string: func(module-name: string, program: string) -> result<_, string>;
+
+        // Run a query and get a query state handle
+        run-query: func(query: string) -> result<query-state, string>;
+    }
+
+    // Query state resource for iterating through solutions
+    resource query-state {
+        // Get next solution
+        next: func() -> result<option<solution>, string>;
+    }
+
+    // Solution types
+    variant solution {
+        // Query succeeded with no bindings
+        true,
+        // Query failed
+        false,
+        // Query threw an exception
+        exception(string),
+        // Query succeeded with variable bindings
+        bindings(binding-set),
+    }
+
+    // Resource to represent a set of variable bindings
+    resource binding-set {
+        // Get all variable names
+        variables: func() -> list<string>;
+
+        // Get the term bound to a variable
+        // Returns None if variable not found
+        get-binding: func(var-name: string) -> option<term-ref>;
+    }
+
+    // Reference to a term in the term store
+    resource term-ref {
+        // Get the type of this term
+        term-type: func() -> term-type;
+
+        // Get atom value (only valid for atom terms)
+        as-atom: func() -> option<string>;
+
+        // Get integer value (only valid for integer terms)
+        as-integer: func() -> option<s64>;
+
+        // Get float value (only valid for float terms)
+        as-float: func() -> option<f64>;
+
+        // Get string value (only valid for string terms)
+        as-string: func() -> option<string>;
+
+        // Get variable name (only valid for variable terms)
+        as-variable: func() -> option<string>;
+
+        // Get rational parts (only valid for rational terms)
+        as-rational: func() -> option<tuple<string, string>>;
+
+        // Get list elements (only valid for list terms)
+        as-list: func() -> option<list<term-ref>>;
+
+        // Get compound functor and arguments (only valid for compound terms)
+        as-compound: func() -> option<compound-parts>;
+
+        // Convert term to string representation
+        to-string: func() -> string;
+    }
+
+    // Parts of a compound term
+    record compound-parts {
+        functor: string,
+        args: list<term-ref>,
+    }
+
+    // Term type enumeration
+    enum term-type {
+        atom,
+        integer,
+        float,
+        str,
+        lst,
+        compound,
+        variable,
+        rational,
+    }
+}
+
+world scryer-prolog {
+    export core;
+}

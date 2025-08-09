@@ -1,0 +1,16 @@
+[package]
+name = "scryer-prolog-full-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wit-bindgen = "0.42.0"
+
+[[bin]]
+name = "scryer-prolog-full-cli"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+strip = true

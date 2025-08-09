@@ -1,6 +1,8 @@
 #![allow(clippy::new_without_default)] // annotating structs annotated with #[bitfield] doesn't work
 
-#[cfg(feature = "http")]
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+use self::dummy_http::{HttpListener, HttpResponse};
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use crate::http::{HttpListener, HttpResponse};
 use crate::machine::loader::LiveLoadState;
 use crate::machine::streams::*;
@@ -375,7 +377,6 @@ impl ArenaAllocated for TcpListener {
     }
 }
 
-#[cfg(feature = "http")]
 impl ArenaAllocated for HttpListener {
     type Payload = Self;
     #[inline]
@@ -384,7 +385,6 @@ impl ArenaAllocated for HttpListener {
     }
 }
 
-#[cfg(feature = "http")]
 impl ArenaAllocated for HttpResponse {
     type Payload = Self;
     #[inline]
@@ -518,15 +518,15 @@ unsafe fn drop_slab_in_place(value: NonNull<AllocSlab>, tag: ArenaHeaderTag) {
             drop_typed_slab_in_place!(NamedTcpStream, value);
         }
         ArenaHeaderTag::NamedTlsStream => {
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             drop_typed_slab_in_place!(NamedTlsStream, value);
         }
         ArenaHeaderTag::HttpReadStream => {
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             drop_typed_slab_in_place!(HttpReadStream, value);
         }
         ArenaHeaderTag::HttpWriteStream => {
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             drop_typed_slab_in_place!(HttpWriteStream, value);
         }
         ArenaHeaderTag::ReadlineStream => {
@@ -595,6 +595,28 @@ impl Drop for Arena {
 
 const_assert!(mem::size_of::<AllocSlab>() <= 24);
 const_assert!(mem::size_of::<OrderedFloat<f64>>() == 8);
+
+// Dummy HTTP types for when HTTP feature is disabled
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+mod dummy_http {
+    use std::sync::{Arc, Condvar, Mutex};
+
+    // Dummy HttpListener type
+    pub struct HttpListener;
+
+    // Dummy HttpResponse type
+    pub type HttpResponse = Arc<(Mutex<bool>, Mutex<Option<()>>, Condvar)>;
+}
+
+// Dummy TLS types for when TLS is not available
+#[cfg(not(all(feature = "tls", not(target_arch = "wasm32"))))]
+mod dummy_tls {
+    // Dummy NamedTlsStream type
+    pub struct NamedTlsStream;
+}
+
+#[cfg(not(all(feature = "tls", not(target_arch = "wasm32"))))]
+use self::dummy_tls::NamedTlsStream;
 
 #[cfg(test)]
 mod tests {

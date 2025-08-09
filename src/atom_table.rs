@@ -260,7 +260,7 @@ impl std::ops::Deref for AtomString<'_> {
     }
 }
 
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 impl rustyline::completion::Candidate for AtomString<'_> {
     fn display(&self) -> &str {
         self.deref()

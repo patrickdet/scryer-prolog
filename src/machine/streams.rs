@@ -5,7 +5,7 @@ use crate::parser::ast::*;
 use crate::parser::char_reader::*;
 use crate::read::*;
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use crate::http::HttpResponse;
 use crate::machine::machine_errors::*;
 use crate::machine::machine_indices::*;
@@ -14,7 +14,7 @@ use crate::types::*;
 
 pub use scryer_modular_bitfield::prelude::*;
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use bytes::{buf::Reader as BufReader, Buf, Bytes};
 use std::cmp::Ordering;
 use std::error::Error;
@@ -34,10 +34,10 @@ use std::ptr;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::TryRecvError;
 
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 use native_tls::TlsStream;
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 use warp::hyper;
 
 #[derive(Debug, BitfieldSpecifier, Clone, Copy, PartialEq, Eq, Hash)]
@@ -248,14 +248,14 @@ impl Write for NamedTcpStream {
     }
 }
 
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 #[derive(Debug)]
 pub struct NamedTlsStream {
     address: Atom,
     tls_stream: TlsStream<Stream>,
 }
 
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 impl Read for NamedTlsStream {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -263,7 +263,7 @@ impl Read for NamedTlsStream {
     }
 }
 
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 impl Write for NamedTlsStream {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -276,20 +276,20 @@ impl Write for NamedTlsStream {
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub struct HttpReadStream {
     url: Atom,
     body_reader: BufReader<Bytes>,
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl Debug for HttpReadStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Http Read Stream [{}]", self.url.as_str())
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl Read for HttpReadStream {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -297,7 +297,7 @@ impl Read for HttpReadStream {
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 pub struct HttpWriteStream {
     status_code: u16,
     headers: std::mem::ManuallyDrop<hyper::HeaderMap>,
@@ -305,14 +305,14 @@ pub struct HttpWriteStream {
     buffer: std::mem::ManuallyDrop<Vec<u8>>,
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl Debug for HttpWriteStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Http Write Stream")
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl Write for HttpWriteStream {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -326,7 +326,7 @@ impl Write for HttpWriteStream {
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 impl HttpWriteStream {
     // TODO why is this suddenly dead code and should it be used somewhere?
     // Should this be impl Drop for HttpWriteStream?
@@ -349,6 +349,13 @@ impl HttpWriteStream {
         cvar.notify_one();
     }
 }
+
+// Dummy HTTP stream types for when HTTP feature is disabled
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+pub struct HttpReadStream;
+
+#[cfg(not(all(feature = "http", not(target_arch = "wasm32"))))]
+pub struct HttpWriteStream;
 
 #[derive(Debug)]
 pub struct StandardOutputStream {}
@@ -578,11 +585,11 @@ arena_allocated_impl_for_stream!(CharReader<ByteStream>, ByteStream);
 arena_allocated_impl_for_stream!(CharReader<InputFileStream>, InputFileStream);
 arena_allocated_impl_for_stream!(OutputFileStream, OutputFileStream);
 arena_allocated_impl_for_stream!(CharReader<NamedTcpStream>, NamedTcpStream);
-#[cfg(feature = "tls")]
+#[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
 arena_allocated_impl_for_stream!(CharReader<NamedTlsStream>, NamedTlsStream);
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 arena_allocated_impl_for_stream!(CharReader<HttpReadStream>, HttpReadStream);
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 arena_allocated_impl_for_stream!(CharReader<HttpWriteStream>, HttpWriteStream);
 arena_allocated_impl_for_stream!(ReadlineStream, ReadlineStream);
 arena_allocated_impl_for_stream!(StaticStringStream, StaticStringStream);
@@ -600,11 +607,11 @@ pub enum Stream {
     OutputFile(TypedArenaPtr<OutputFileStream>),
     StaticString(TypedArenaPtr<StaticStringStream>),
     NamedTcp(TypedArenaPtr<NamedTcpStream>),
-    #[cfg(feature = "tls")]
+    #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
     NamedTls(TypedArenaPtr<NamedTlsStream>),
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     HttpRead(TypedArenaPtr<HttpReadStream>),
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     HttpWrite(TypedArenaPtr<HttpWriteStream>),
     Null(StreamOptions),
     Readline(TypedArenaPtr<ReadlineStream>),
@@ -671,11 +678,11 @@ impl Stream {
             ArenaHeaderTag::InputFileStream => Stream::InputFile(unsafe { ptr.as_typed_ptr() }),
             ArenaHeaderTag::OutputFileStream => Stream::OutputFile(unsafe { ptr.as_typed_ptr() }),
             ArenaHeaderTag::NamedTcpStream => Stream::NamedTcp(unsafe { ptr.as_typed_ptr() }),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             ArenaHeaderTag::NamedTlsStream => Stream::NamedTls(unsafe { ptr.as_typed_ptr() }),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             ArenaHeaderTag::HttpReadStream => Stream::HttpRead(unsafe { ptr.as_typed_ptr() }),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             ArenaHeaderTag::HttpWriteStream => Stream::HttpWrite(unsafe { ptr.as_typed_ptr() }),
             ArenaHeaderTag::ReadlineStream => Stream::Readline(unsafe { ptr.as_typed_ptr() }),
             ArenaHeaderTag::StaticStringStream => {
@@ -722,11 +729,11 @@ impl Stream {
             Stream::OutputFile(ptr) => ptr.header_ptr(),
             Stream::StaticString(ptr) => ptr.header_ptr(),
             Stream::NamedTcp(ptr) => ptr.header_ptr(),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ptr) => ptr.header_ptr(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ptr) => ptr.header_ptr(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(ptr) => ptr.header_ptr(),
             Stream::Null(_) => ptr::null(),
             Stream::Readline(ptr) => ptr.header_ptr(),
@@ -746,11 +753,11 @@ impl Stream {
             Stream::OutputFile(ref ptr) => &ptr.options,
             Stream::StaticString(ref ptr) => &ptr.options,
             Stream::NamedTcp(ref ptr) => &ptr.options,
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref ptr) => &ptr.options,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ref ptr) => &ptr.options,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(ref ptr) => &ptr.options,
             Stream::Null(ref options) => options,
             Stream::Readline(ref ptr) => &ptr.options,
@@ -770,11 +777,11 @@ impl Stream {
             Stream::OutputFile(ref mut ptr) => &mut ptr.options,
             Stream::StaticString(ref mut ptr) => &mut ptr.options,
             Stream::NamedTcp(ref mut ptr) => &mut ptr.options,
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref mut ptr) => &mut ptr.options,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ref mut ptr) => &mut ptr.options,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(ref mut ptr) => &mut ptr.options,
             Stream::Null(ref mut options) => options,
             Stream::Readline(ref mut ptr) => &mut ptr.options,
@@ -795,11 +802,11 @@ impl Stream {
             Stream::OutputFile(ptr) => ptr.lines_read += incr_num_lines_read,
             Stream::StaticString(ptr) => ptr.lines_read += incr_num_lines_read,
             Stream::NamedTcp(ptr) => ptr.lines_read += incr_num_lines_read,
-            #[cfg(feature = "tls")]
-            Stream::NamedTls(ptr) => ptr.lines_read += incr_num_lines_read,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ptr) => ptr.lines_read += incr_num_lines_read,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+            Stream::HttpWrite(ptr) => ptr.lines_read += incr_num_lines_read,
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => {}
             Stream::Null(_) => {}
             Stream::Readline(ptr) => ptr.lines_read += incr_num_lines_read,
@@ -820,11 +827,11 @@ impl Stream {
             Stream::OutputFile(ptr) => ptr.lines_read = value,
             Stream::StaticString(ptr) => ptr.lines_read = value,
             Stream::NamedTcp(ptr) => ptr.lines_read = value,
-            #[cfg(feature = "tls")]
-            Stream::NamedTls(ptr) => ptr.lines_read = value,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ptr) => ptr.lines_read = value,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+            Stream::HttpWrite(ptr) => ptr.lines_read = value,
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => {}
             Stream::Null(_) => {}
             Stream::Readline(ptr) => ptr.lines_read = value,
@@ -845,11 +852,11 @@ impl Stream {
             Stream::OutputFile(ptr) => ptr.lines_read,
             Stream::StaticString(ptr) => ptr.lines_read,
             Stream::NamedTcp(ptr) => ptr.lines_read,
-            #[cfg(feature = "tls")]
-            Stream::NamedTls(ptr) => ptr.lines_read,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ptr) => ptr.lines_read,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+            Stream::HttpWrite(ptr) => ptr.lines_read,
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => 0,
             Stream::Null(_) => 0,
             Stream::Readline(ptr) => ptr.lines_read,
@@ -868,9 +875,9 @@ impl CharRead for Stream {
         match self {
             Stream::InputFile(file) => (*file).peek_char(),
             Stream::NamedTcp(tcp_stream) => (*tcp_stream).peek_char(),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(tls_stream) => (*tls_stream).peek_char(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(http_stream) => (*http_stream).peek_char(),
             Stream::Readline(rl_stream) => (*rl_stream).peek_char(),
             Stream::StaticString(src) => (*src).peek_char(),
@@ -879,6 +886,7 @@ impl CharRead for Stream {
             Stream::PipeReader(cursor) => (*cursor).peek_char(),
 
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => Some(Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 StreamError::ReadFromOutputStream,
@@ -899,9 +907,9 @@ impl CharRead for Stream {
         match self {
             Stream::InputFile(file) => (*file).read_char(),
             Stream::NamedTcp(tcp_stream) => (*tcp_stream).read_char(),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(tls_stream) => (*tls_stream).read_char(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(http_stream) => (*http_stream).read_char(),
             Stream::Readline(rl_stream) => (*rl_stream).read_char(),
             Stream::StaticString(src) => (*src).read_char(),
@@ -909,6 +917,7 @@ impl CharRead for Stream {
             Stream::InputChannel(cursor) => (*cursor).read_char(),
             Stream::PipeReader(cursor) => (*cursor).read_char(),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => Some(Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 StreamError::ReadFromOutputStream,
@@ -929,15 +938,16 @@ impl CharRead for Stream {
         match self {
             Stream::InputFile(file) => file.put_back_char(c),
             Stream::NamedTcp(tcp_stream) => tcp_stream.put_back_char(c),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(tls_stream) => tls_stream.put_back_char(c),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(http_stream) => http_stream.put_back_char(c),
             Stream::Readline(rl_stream) => rl_stream.put_back_char(c),
             Stream::StaticString(src) => src.put_back_char(c),
             Stream::Byte(cursor) => cursor.put_back_char(c),
             Stream::PipeReader(cursor) => cursor.put_back_char(c),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => {}
             Stream::OutputFile(_)
             | Stream::StandardError(_)
@@ -953,9 +963,9 @@ impl CharRead for Stream {
         match self {
             Stream::InputFile(ref mut file) => file.consume(nread),
             Stream::NamedTcp(ref mut tcp_stream) => tcp_stream.consume(nread),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref mut tls_stream) => tls_stream.consume(nread),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ref mut http_stream) => http_stream.consume(nread),
             Stream::Readline(ref mut rl_stream) => rl_stream.consume(nread),
             Stream::StaticString(ref mut src) => src.consume(nread),
@@ -963,6 +973,7 @@ impl CharRead for Stream {
             Stream::InputChannel(ref mut cursor) => cursor.consume(nread),
             Stream::PipeReader(ref mut cursor) => cursor.consume(nread),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => {}
             Stream::OutputFile(_)
             | Stream::StandardError(_)
@@ -980,9 +991,9 @@ impl Read for Stream {
         match self {
             Stream::InputFile(file) => (*file).read(buf),
             Stream::NamedTcp(tcp_stream) => (*tcp_stream).read(buf),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(tls_stream) => (*tls_stream).read(buf),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(http_stream) => (*http_stream).read(buf),
             Stream::Readline(rl_stream) => (*rl_stream).read(buf),
             Stream::StaticString(src) => (*src).read(buf),
@@ -990,6 +1001,7 @@ impl Read for Stream {
             Stream::InputChannel(cursor) => (*cursor).read(buf),
             Stream::PipeReader(cursor) => (*cursor).read(buf),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 StreamError::ReadFromOutputStream,
@@ -1012,16 +1024,17 @@ impl Write for Stream {
         match self {
             Stream::OutputFile(ref mut file) => file.write(buf),
             Stream::NamedTcp(ref mut tcp_stream) => tcp_stream.get_mut().write(buf),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref mut tls_stream) => tls_stream.get_mut().write(buf),
             Stream::Byte(ref mut cursor) => cursor.get_mut().write(buf),
             Stream::Callback(ref mut callback_stream) => callback_stream.get_mut().write(buf),
             Stream::StandardOutput(stream) => stream.write(buf),
             Stream::StandardError(stream) => stream.write(buf),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(ref mut stream) => stream.get_mut().write(buf),
             Stream::PipeWriter(ref mut stream) => stream.get_mut().write(buf),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(_) => Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 StreamError::WriteToInputStream,
@@ -1042,7 +1055,7 @@ impl Write for Stream {
         match self {
             Stream::OutputFile(ref mut file) => file.stream.flush(),
             Stream::NamedTcp(ref mut tcp_stream) => tcp_stream.stream.get_mut().flush(),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref mut tls_stream) => tls_stream.stream.get_mut().flush(),
             Stream::Byte(ref mut cursor) => cursor.stream.get_mut().flush(),
             Stream::Callback(ref mut callback_stream) => callback_stream.stream.get_mut().flush(),
@@ -1050,8 +1063,9 @@ impl Write for Stream {
             Stream::StandardOutput(stream) => stream.stream.flush(),
             Stream::PipeWriter(ref mut stream) => stream.stream.get_mut().flush(),
             #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(ref mut stream) => stream.stream.get_mut().flush(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(_) => Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 StreamError::FlushToInputStream,
@@ -1176,7 +1190,7 @@ impl Stream {
                 Some(string_stream_layout.stream.stream.position())
             }
             Stream::InputFile(file_stream) => file_stream.position(),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(..) => Some(0),
             Stream::NamedTcp(..) | Stream::Readline(..) => Some(0),
             _ => None,
@@ -1215,11 +1229,11 @@ impl Stream {
             Stream::OutputFile(stream) => stream.past_end_of_stream,
             Stream::StaticString(stream) => stream.past_end_of_stream,
             Stream::NamedTcp(stream) => stream.past_end_of_stream,
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(stream) => stream.past_end_of_stream,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(stream) => stream.past_end_of_stream,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(stream) => stream.past_end_of_stream,
             Stream::Null(_) => false,
             Stream::Readline(stream) => stream.past_end_of_stream,
@@ -1245,11 +1259,11 @@ impl Stream {
             Stream::OutputFile(stream) => stream.past_end_of_stream = value,
             Stream::StaticString(stream) => stream.past_end_of_stream = value,
             Stream::NamedTcp(stream) => stream.past_end_of_stream = value,
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(stream) => stream.past_end_of_stream = value,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(stream) => stream.past_end_of_stream = value,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(stream) => stream.past_end_of_stream = value,
             Stream::Null(_) => {}
             Stream::Readline(stream) => stream.past_end_of_stream = value,
@@ -1321,7 +1335,7 @@ impl Stream {
                 }
             }
             Stream::Null(_) => AtEndOfStream::At,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(stream_layout) => {
                 if stream_layout
                     .stream
@@ -1352,7 +1366,7 @@ impl Stream {
             Stream::InputFile(file) => Some(file.stream.get_ref().file_name),
             Stream::OutputFile(file) => Some(file.stream.file_name),
             Stream::NamedTcp(tcp) => Some(tcp.stream.get_ref().address),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(tls) => Some(tls.stream.get_ref().address),
             _ => None,
         }
@@ -1361,9 +1375,9 @@ impl Stream {
     #[inline]
     pub(crate) fn mode(&self) -> Atom {
         match self {
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(_) => atom!("read"),
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(..) => atom!("read_append"),
             Stream::Byte(_)
             | Stream::InputChannel(_)
@@ -1373,7 +1387,7 @@ impl Stream {
             | Stream::PipeReader(_) => atom!("read"),
             Stream::NamedTcp(..) => atom!("read_append"),
             Stream::OutputFile(file) if file.is_append => atom!("append"),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(_) => atom!("write"),
             Stream::OutputFile(_)
             | Stream::StandardError(_)
@@ -1441,7 +1455,7 @@ impl Stream {
         ))
     }
 
-    #[cfg(feature = "tls")]
+    #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
     #[inline]
     pub(crate) fn from_tls_stream(
         address: Atom,
@@ -1457,7 +1471,7 @@ impl Stream {
         ))
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline]
     pub(crate) fn from_http_stream(
         url: Atom,
@@ -1473,7 +1487,7 @@ impl Stream {
         ))
     }
 
-    #[cfg(feature = "http")]
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[inline]
     pub(crate) fn from_http_sender(
         response: TypedArenaPtr<HttpResponse>,
@@ -1524,15 +1538,15 @@ impl Stream {
             Stream::NamedTcp(ref mut tcp_stream) => {
                 tcp_stream.inner_mut().tcp_stream.shutdown(Shutdown::Both)
             }
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(ref mut tls_stream) => tls_stream.inner_mut().tls_stream.shutdown(),
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(ref mut http_stream) => {
                 http_stream.drop_payload();
 
                 Ok(())
             }
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(mut http_stream) => {
                 http_stream.drop_payload();
 
@@ -1593,9 +1607,9 @@ impl Stream {
     #[inline]
     pub(crate) fn is_input_stream(&self) -> bool {
         match self {
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(..) => true,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpRead(..) => true,
             Stream::NamedTcp(..)
             | Stream::Byte(_)
@@ -1612,9 +1626,9 @@ impl Stream {
     #[inline]
     pub(crate) fn is_output_stream(&self) -> bool {
         match self {
-            #[cfg(feature = "tls")]
+            #[cfg(all(feature = "tls", not(target_arch = "wasm32")))]
             Stream::NamedTls(..) => true,
-            #[cfg(feature = "http")]
+            #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
             Stream::HttpWrite(..) => true,
             Stream::StandardError(_)
             | Stream::StandardOutput(_)

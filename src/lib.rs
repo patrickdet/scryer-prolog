@@ -20,12 +20,12 @@ mod allocator;
 mod arithmetic;
 pub(crate) mod codegen;
 mod debray_allocator;
-#[cfg(feature = "ffi")]
+#[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
 mod ffi;
 mod forms;
 mod heap_iter;
 pub(crate) mod heap_print;
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", not(target_arch = "wasm32")))]
 mod http;
 mod indexing;
 mod variable_records;
@@ -37,7 +37,7 @@ mod iterators;
 pub(crate) mod machine;
 mod raw_block;
 pub(crate) mod read;
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 mod repl_helper;
 mod targets;
 pub(crate) mod types;
@@ -47,8 +47,11 @@ pub use machine::config::*;
 pub use machine::lib_machine::*;
 pub use machine::Machine;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod wasm;
+
+#[cfg(all(target_arch = "wasm32", target_os = "wasi", feature = "wasi-component"))]
+pub mod wasi_component;
 
 #[cfg(not(target_arch = "wasm32"))]
 /// The entry point for the Scryer Prolog CLI.

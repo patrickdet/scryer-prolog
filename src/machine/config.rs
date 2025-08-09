@@ -276,7 +276,7 @@ impl MachineBuilder {
             user_output,
             user_error,
             load_contexts: vec![],
-            #[cfg(feature = "ffi")]
+            #[cfg(all(feature = "ffi", not(target_arch = "wasm32")))]
             foreign_function_table: Default::default(),
             rng: StdRng::from_entropy(),
         };

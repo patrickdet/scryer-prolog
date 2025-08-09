@@ -1,6 +1,79 @@
-target
-Dockerfile
+# Build artifacts
+target/
+Cargo.lock
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
 README.md
-.git
+WASI_README.md
+docs/
+*.md
+
+# Version control
+.git/
 .gitignore
 .gitmodules
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artifacts
+tests/
+trycmd/
+*.profraw
+*.profdata
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+azure-pipelines.yml
+
+# Development scripts (except what's needed for the build)
+scripts/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.log
+
+# OS-specific files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Coverage reports
+coverage/
+*.lcov
+*.gcov
+*.gcda
+*.gcno
+
+# Node modules (if any)
+node_modules/
+
+# Python cache (if any)
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*.backup
+*.old
+
+# Large test data files
+*.dat
+*.bin
+large_test_files/

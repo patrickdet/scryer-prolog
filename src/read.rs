@@ -11,22 +11,22 @@ use crate::machine::machine_indices::*;
 use crate::machine::machine_state::MachineState;
 use crate::machine::streams::*;
 use crate::parser::char_reader::*;
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use crate::repl_helper::Helper;
 use crate::types::*;
 
 use fxhash::FxBuildHasher;
 
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use rustyline::error::ReadlineError;
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use rustyline::history::DefaultHistory;
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use rustyline::{Config, Editor};
 
 use std::collections::VecDeque;
 use std::io::{Cursor, Read};
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ impl MachineState {
 }
 
 static mut PROMPT: bool = false;
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 const HISTORY_FILE: &str = ".scryer_history";
 
 pub(crate) fn set_prompt(value: bool) {
@@ -95,7 +95,7 @@ pub(crate) fn set_prompt(value: bool) {
     }
 }
 
-#[cfg(feature = "repl")]
+#[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
 #[inline]
 fn get_prompt() -> &'static str {
     unsafe {
@@ -109,7 +109,7 @@ fn get_prompt() -> &'static str {
 
 #[derive(Debug)]
 pub struct ReadlineStream {
-    #[cfg(feature = "repl")]
+    #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
     rl: Editor<Helper, DefaultHistory>,
     pending_input: CharReader<Cursor<String>>,
     #[allow(dead_code)]
@@ -119,7 +119,7 @@ pub struct ReadlineStream {
 impl ReadlineStream {
     #[inline]
     pub fn new(pending_input: &str, add_history: bool) -> Self {
-        #[cfg(feature = "repl")]
+        #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
         {
             let config = Config::builder().check_cursor_position(true).build();
 
@@ -142,7 +142,7 @@ impl ReadlineStream {
             }
         }
 
-        #[cfg(not(feature = "repl"))]
+        #[cfg(not(all(feature = "repl", not(target_arch = "wasm32"))))]
         {
             ReadlineStream {
                 pending_input: CharReader::new(Cursor::new(pending_input.to_owned())),
@@ -153,7 +153,7 @@ impl ReadlineStream {
 
     #[allow(unused_variables)]
     pub fn set_atoms_for_completion(&mut self, atoms: &Arc<AtomTable>) {
-        #[cfg(feature = "repl")]
+        #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
         {
             let helper = self.rl.helper_mut().unwrap();
             helper.atoms = Arc::downgrade(atoms);
@@ -170,7 +170,7 @@ impl ReadlineStream {
         pending_input.set_position(0);
     }
 
-    #[cfg(feature = "repl")]
+    #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
     fn call_readline(&mut self) -> std::io::Result<usize> {
         match self.rl.readline(get_prompt()) {
             Ok(text) => {
@@ -200,12 +200,12 @@ impl ReadlineStream {
         }
     }
 
-    #[cfg(not(feature = "repl"))]
+    #[cfg(any(not(feature = "repl"), target_arch = "wasm32"))]
     fn call_readline(&mut self) -> std::io::Result<usize> {
         Ok(0)
     }
 
-    #[cfg(feature = "repl")]
+    #[cfg(all(feature = "repl", not(target_arch = "wasm32")))]
     fn save_history(&mut self) {
         if !self.add_history {
             return;
