@@ -187,21 +187,16 @@ fn print_version() {
 fn execute_query(machine: &Machine, query_str: &str) {
     match machine.run_query(query_str) {
         Ok(query_state) => {
-            let mut found_solution = false;
-            
             loop {
                 match query_state.next() {
                     Ok(Some(solution)) => {
-                        found_solution = true;
                         print_solution(solution);
                         
                         // For non-interactive mode, just show first solution
                         break;
                     }
                     Ok(None) => {
-                        if !found_solution {
-                            println!("false.");
-                        }
+                        println!("false.");
                         break;
                     }
                     Err(e) => {

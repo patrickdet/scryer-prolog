@@ -3,7 +3,9 @@
     "allow": [
       "Bash(cp:*)",
       "Bash(docker-compose run:*)",
-      "Bash(docker-compose build:*)"
+      "Bash(docker-compose build:*)",
+      "Bash(wasmtime run:*)",
+      "Bash(docker compose run:*)"
     ],
     "deny": []
   }

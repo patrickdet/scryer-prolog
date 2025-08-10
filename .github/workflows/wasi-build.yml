@@ -46,102 +46,35 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip2, wasm32-wasip1
-          components: rust-src
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install WASI build tools
+      - name: Build WASI components with Docker Compose
         run: |
-          echo "Installing cargo-component..."
-          cargo install cargo-component --version 0.21.1 --locked
+          echo "Building WASI components using Docker Compose..."
           
-          echo "Installing wasm-tools..."
-          cargo install wasm-tools --version 1.235.0 --locked
+          # Build using docker-compose
+          docker compose run --rm build
           
-          echo "Installing wasmtime CLI..."
+          # Extract the built files from the container
+          docker compose run --rm build bash -c "
+            cp target/scryer-prolog.wasm /workspace/scryer-prolog-cli.wasm &&
+            cp target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm /workspace/scryer-prolog-core.wasm
+          "
+          
+          # Verify files exist and show sizes
+          echo "Final CLI component size:"
+          ls -lh scryer-prolog-cli.wasm
+          echo "Core component size:"
+          ls -lh scryer-prolog-core.wasm
+
+      - name: Install wasmtime for testing
+        run: |
+          echo "Installing wasmtime for testing..."
           curl -sSL https://github.com/bytecodealliance/wasmtime/releases/download/v28.0.0/wasmtime-v28.0.0-x86_64-linux.tar.xz | \
             tar -xJ -C /tmp
           sudo mv /tmp/wasmtime-v28.0.0-x86_64-linux/wasmtime /usr/local/bin/
           wasmtime --version
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-wasi-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-wasi-
-
-      - name: Build core WASI component
-        run: |
-          echo "Building core library component..."
-          cargo build \
-            --target wasm32-wasip2 \
-            --profile=wasi-release \
-            --no-default-features \
-            --features=wasi-component
-          
-          # Check if it's already a component
-          if wasm-tools validate target/wasm32-wasip2/wasi-release/scryer_prolog.wasm --features component-model 2>/dev/null; then
-            echo "Output is already a component"
-            cp target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
-               target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
-          else
-            echo "Creating component from module"
-            wasm-tools component new target/wasm32-wasip2/wasi-release/scryer_prolog.wasm \
-              -o target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
-          fi
-          
-          # Validate the component
-          wasm-tools validate target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
-          
-          # Report size
-          ls -lh target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm
-
-      - name: Build CLI component
-        run: |
-          echo "Building CLI component..."
-          cd wasi/cli
-          
-          # Update dependencies
-          cargo update
-          
-          # Build the CLI
-          cargo build --target wasm32-wasip2 --release
-          
-          # Report size
-          ls -lh target/wasm32-wasip2/release/scryer-prolog-full-cli.wasm
-          cd ../..
-
-      - name: Compose final WASI component
-        run: |
-          echo "Composing final WASI CLI..."
-          
-          # Use wasm-tools compose to combine components
-          wasm-tools compose \
-            wasi/cli/target/wasm32-wasip2/release/scryer-prolog-full-cli.wasm \
-            --plug target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
-            -o scryer-prolog-cli.wasm || \
-          wasm-tools compose \
-            target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm \
-            --plug wasi/cli/target/wasm32-wasip2/release/scryer-prolog-full-cli.wasm \
-            -o scryer-prolog-cli.wasm
-          
-          # Validate final component
-          wasm-tools validate scryer-prolog-cli.wasm
-          
-          # Report final size
-          echo "Final CLI component size:"
-          ls -lh scryer-prolog-cli.wasm
-          
-          # Create standalone core component
-          cp target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm scryer-prolog-core.wasm
-          echo "Core component size:"
-          ls -lh scryer-prolog-core.wasm
 
       - name: Test basic functionality
         run: |
