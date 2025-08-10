@@ -562,6 +562,12 @@ impl Machine {
 
     /// Runs a query.
     pub fn run_query(&mut self, query: impl Into<String>) -> QueryState {
+        self.run_query_safe(query)
+            .expect("Failed to parse query")
+    }
+
+    /// Safely runs a query, returning an error instead of panicking on parse failures.
+    pub fn run_query_safe(&mut self, query: impl Into<String>) -> Result<QueryState, String> {
         let mut parser = Parser::new(
             Stream::from_owned_string(query.into(), &mut self.machine_st.arena),
             &mut self.machine_st,
@@ -569,13 +575,13 @@ impl Machine {
         let op_dir = CompositeOpDir::new(&self.indices.op_dir, None);
         let term = parser
             .read_term(&op_dir, Tokens::Default)
-            .expect("Failed to parse query");
+            .map_err(|e| format!("Parse error: {:?}", e))?;
 
         self.allocate_stub_choice_point();
 
         // Write parsed term to heap
         let term_write_result = write_term_to_heap(&term, &mut self.machine_st.heap)
-            .expect("couldn't write term to heap");
+            .map_err(|_| "Failed to write term to heap".to_string())?;
 
         let var_names: IndexMap<_, _> = term_write_result
             .var_dict
@@ -605,17 +611,17 @@ impl Machine {
                     .get_entry(offset.into())
                     .p() as usize
             })
-            .expect("couldn't get code index");
+            .ok_or_else(|| "Failed to get code index for call/1".to_string())?;
 
         self.machine_st.execute_at_index(1, call_index_p);
 
         let stub_b = self.machine_st.b;
-        QueryState {
+        Ok(QueryState {
             machine: self,
             term: term_write_result,
             stub_b,
             var_names,
             called: false,
-        }
+        })
     }
 }
