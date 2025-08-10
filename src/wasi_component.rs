@@ -11,6 +11,7 @@ use crate::{Machine as ScryerMachine, MachineBuilder, QueryState as ScryerQueryS
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -190,18 +191,42 @@ impl GuestMachine for MachineResource {
                     state.query_to_machine.remove(&old_query_id);
                 }
                 
-                // Get a raw pointer to the machine to bypass borrow checker
-                // This is safe because:
-                // 1. We're single-threaded
-                // 2. We ensure the machine lives as long as the query
-                let machine_ptr = machine_state.machine.as_ptr();
-                let machine_ref = unsafe { &mut *machine_ptr };
+                // Try to run the query with panic catching
+                // We need to be careful with lifetimes here
+                let query_clone = query.clone();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    // Get a raw pointer to the machine to bypass borrow checker
+                    // This is safe because:
+                    // 1. We're single-threaded
+                    // 2. We ensure the machine lives as long as the query
+                    let machine_ptr = machine_state.machine.as_ptr();
+                    let machine_ref = unsafe { &mut *machine_ptr };
+                    
+                    // Run the query and immediately convert to stored state
+                    let query_state = machine_ref.run_query(query_clone);
+                    unsafe { StoredQueryState::from_query_state(query_state) }
+                }));
                 
-                // Run the query
-                let query_state = machine_ref.run_query(query);
-                
-                // Store the QueryState with extended lifetime
-                let stored_state = unsafe { StoredQueryState::from_query_state(query_state) };
+                let stored_state = match result {
+                    Ok(state) => state,
+                    Err(panic_err) => {
+                        // Extract panic message if possible
+                        let msg = if let Some(s) = panic_err.downcast_ref::<String>() {
+                            s.clone()
+                        } else if let Some(s) = panic_err.downcast_ref::<&str>() {
+                            s.to_string()
+                        } else {
+                            "Query parsing failed".to_string()
+                        };
+                        
+                        // Clean up the error message to be more user-friendly
+                        if msg.contains("Failed to parse query") {
+                            return Err(format!("Syntax error in query: {}", query));
+                        } else {
+                            return Err(format!("Error: {}", msg));
+                        }
+                    }
+                };
                 
                 // Store the query state in the machine
                 machine_state.active_query = Some((query_id, stored_state));

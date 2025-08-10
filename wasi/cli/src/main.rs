@@ -89,9 +89,32 @@ fn main() {
     
     let machine = Machine::new(config);
     
-    // Note: Libraries are not auto-loaded due to memory constraints in WASI
-    // Users should load libraries explicitly using use_module/1
-    // For example: use_module(library(between))
+    // Load essential libraries that the native REPL loads by default
+    // These are loaded in toplevel.pl for the native version
+    let essential_libraries = [
+        "charsio",
+        "error", 
+        "files",
+        "iso_ext",
+        "lambda",
+        "lists",
+        "si",
+        "os",
+        "format",
+    ];
+    
+    for lib in &essential_libraries {
+        let query = format!("use_module(library({})).", lib);
+        match machine.run_query(&query) {
+            Ok(mut query_state) => {
+                // Just run the query to load the module, don't need the result
+                let _ = query_state.next();
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to load library {}: {}", lib, e);
+            }
+        }
+    }
 
     // Load files
     for file_path in &files {
@@ -142,13 +165,16 @@ fn print_help() {
     println!("    -q, --query <QUERY>    Execute a query and exit");
     println!("    -f, --file <FILE>      Load a Prolog file before running");
     println!();
-    println!("NOTE:");
-    println!("    Libraries must be loaded explicitly using use_module/1.");
-    println!("    Example: use_module(library(between)), between(1, 5, X).");
+    println!("PRE-LOADED LIBRARIES:");
+    println!("    The following libraries are loaded automatically:");
+    println!("    charsio, error, files, iso_ext, lambda, lists, si, os, format");
+    println!();
+    println!("    Additional libraries can be loaded with use_module/1:");
+    println!("    Example: use_module(library(between)).");
     println!();
     println!("EXAMPLES:");
     println!("    scryer-prolog -q \"assertz(parent(tom, bob)), parent(tom, X).\"");
-    println!("    scryer-prolog -q \"use_module(library(between)), between(1, 5, X).\"");
+    println!("    scryer-prolog -q \"member(X, [1,2,3]).\"  # lists is pre-loaded");
     println!("    scryer-prolog -f facts.pl -q \"parent(john, X).\"");
 }
 
@@ -179,14 +205,20 @@ fn execute_query(machine: &Machine, query_str: &str) {
                         break;
                     }
                     Err(e) => {
-                        eprintln!("Query error: {}", e);
+                        eprintln!("Error: {}", e);
                         std::process::exit(1);
                     }
                 }
             }
         }
         Err(e) => {
-            eprintln!("Failed to run query: {}", e);
+            // Clean up error messages for better UX
+            if e.contains("Syntax error") {
+                eprintln!("{}", e);
+                eprintln!("Please check your query syntax.");
+            } else {
+                eprintln!("Error: {}", e);
+            }
             std::process::exit(1);
         }
     }
@@ -195,7 +227,7 @@ fn execute_query(machine: &Machine, query_str: &str) {
 fn run_repl(machine: &Machine) {
     println!("Scryer Prolog v0.9.4 (WASI Component)");
     println!("Type queries followed by '.' or 'exit.' to quit");
-    println!("Note: Load libraries with: use_module(library(name)).");
+    println!("Pre-loaded: charsio, error, files, iso_ext, lambda, lists, si, os, format");
     println!();
     
     let stdin = io::stdin();
@@ -242,12 +274,17 @@ fn run_repl(machine: &Machine) {
                         println!("false.");
                     }
                     Err(e) => {
-                        eprintln!("Query error: {}", e);
+                        eprintln!("Error: {}", e);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to run query: {}", e);
+                // Clean up error messages for better UX
+                if e.contains("Syntax error") {
+                    eprintln!("{}", e);
+                } else {
+                    eprintln!("Error: {}", e);
+                }
             }
         }
     }
