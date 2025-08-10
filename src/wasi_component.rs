@@ -6,7 +6,7 @@
 #![allow(missing_docs)]
 
 use crate::{LeafAnswer, Term as ScryerTerm};
-use crate::{Machine as ScryerMachine, MachineBuilder, QueryState as ScryerQueryState};
+use crate::{Machine as ScryerMachine, MachineBuilder};
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -57,10 +57,14 @@ thread_local! {
     static STATE: RefCell<ComponentState> = RefCell::new(ComponentState::default());
 }
 
-// Wrapper for QueryState to handle lifetime issues
+// Wrapper for QueryState - redesigned to avoid lifetime issues
 struct QueryStateWrapper {
     machine: Rc<RefCell<ScryerMachine>>,
-    query_state: Option<ScryerQueryState<'static>>,
+    query: String,
+    // Track the current solution index - we re-run the query and skip to this position
+    solution_index: usize,
+    // Track if we've reached the end of solutions
+    is_exhausted: bool,
 }
 
 // Data for a binding set
@@ -136,10 +140,12 @@ impl GuestMachine for MachineResource {
                 .ok_or_else(|| "Machine not found".to_string())?
                 .clone();
 
-            // Create a query state wrapper
+            // Create a query state wrapper with the new design
             let wrapper = QueryStateWrapper {
                 machine: machine_rc.clone(),
-                query_state: None,
+                query: query.clone(),
+                solution_index: 0,
+                is_exhausted: false,
             };
 
             let query_id = next_id();
@@ -147,24 +153,8 @@ impl GuestMachine for MachineResource {
                 .query_states
                 .insert(query_id, Rc::new(RefCell::new(wrapper)));
 
-            // Initialize the query
-            let _query_state_rc = state.query_states.get(&query_id).unwrap().clone();
-
-            // We need to handle the lifetime issue here
-            // This is a simplified approach - in production, we'd need better lifetime management
-            {
-                let mut machine = machine_rc.borrow_mut();
-                // Run query within runtime context
-                let query_state = machine.run_query(query.clone());
-
-                // Store the query state (this is where we'd need unsafe or better design)
-                // For now, we'll initialize it when first calling next()
-                drop(query_state); // Can't store it directly due to lifetime
-            }
-
             Ok(QueryState::new(QueryStateResource {
                 id: query_id,
-                query: query.clone(),
             }))
         })
     }
@@ -174,8 +164,6 @@ impl GuestMachine for MachineResource {
 pub struct QueryStateResource {
     /// Unique identifier for this query state
     id: u32,
-    /// The query string to re-run when needed
-    query: String,
 }
 
 impl GuestQueryState for QueryStateResource {
@@ -190,37 +178,54 @@ impl GuestQueryState for QueryStateResource {
 
             let mut wrapper = wrapper_rc.borrow_mut();
 
-            // If query_state is None, initialize it
-            if wrapper.query_state.is_none() {
-                // Run query in a separate scope to ensure machine borrow is dropped
-                let query_state_static = {
-                    let mut machine = wrapper.machine.borrow_mut();
-                    let query_state = machine.run_query(self.query.clone());
-
-                    // This is a workaround for the lifetime issue
-                    // In a real implementation, we'd need a better solution
-                    unsafe {
-                        std::mem::transmute::<ScryerQueryState<'_>, ScryerQueryState<'static>>(
-                            query_state,
-                        )
-                    }
-                }; // machine borrow is dropped here
-
-                wrapper.query_state = Some(query_state_static);
+            // If already exhausted, return None
+            if wrapper.is_exhausted {
+                return Ok(None);
             }
 
-            // Get the next answer
-            if let Some(ref mut query_state) = wrapper.query_state {
-                match query_state.next() {
-                    Some(Ok(leaf_answer)) => {
-                        let solution = convert_leaf_answer(leaf_answer, &mut state);
-                        Ok(Some(solution))
-                    }
-                    Some(Err(error)) => Err(format!("Query error: {:?}", error)),
-                    None => Ok(None),
+            // Get the next solution by re-running the query and skipping to the right position
+            // This avoids the lifetime issue without caching all solutions
+            let query = wrapper.query.clone();
+            let solution_index = wrapper.solution_index;
+            
+            // Drop the wrapper borrow before borrowing the machine
+            let machine_rc = wrapper.machine.clone();
+            drop(wrapper);
+            
+            // Now we can safely borrow the machine
+            let mut machine = machine_rc.borrow_mut();
+            let mut query_state = machine.run_query(query);
+            
+            // Skip to the solution we want
+            for _ in 0..solution_index {
+                if query_state.next().is_none() {
+                    // Re-borrow wrapper to update state
+                    let mut wrapper = wrapper_rc.borrow_mut();
+                    wrapper.is_exhausted = true;
+                    return Ok(None);
                 }
-            } else {
-                Err("Query state not initialized".to_string())
+            }
+            
+            // Get the next solution
+            match query_state.next() {
+                Some(Ok(leaf_answer)) => {
+                    // Re-borrow wrapper to update the index
+                    let mut wrapper = wrapper_rc.borrow_mut();
+                    wrapper.solution_index += 1;
+                    drop(wrapper);
+                    
+                    let solution = convert_leaf_answer(leaf_answer, &mut state);
+                    Ok(Some(solution))
+                }
+                Some(Err(error)) => {
+                    Err(format!("Query error: {:?}", error))
+                }
+                None => {
+                    // Re-borrow wrapper to mark as exhausted
+                    let mut wrapper = wrapper_rc.borrow_mut();
+                    wrapper.is_exhausted = true;
+                    Ok(None)
+                }
             }
         })
     }
