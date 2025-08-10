@@ -53,14 +53,12 @@ jobs:
         run: |
           echo "Building WASI components using Docker Compose..."
           
-          # Build using docker-compose
-          docker compose run --rm build
+          # Build using docker-compose with CI service (runs as root)
+          docker compose run --rm build-ci
           
-          # Extract the built files from the container
-          docker compose run --rm build bash -c "
-            cp target/scryer-prolog.wasm /workspace/scryer-prolog-cli.wasm &&
-            cp target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm /workspace/scryer-prolog-core.wasm
-          "
+          # Files are already in workspace, just copy them to the expected names
+          cp target/scryer-prolog.wasm scryer-prolog-cli.wasm
+          cp target/wasm32-wasip2/wasi-release/scryer_prolog_component.wasm scryer-prolog-core.wasm
           
           # Verify files exist and show sizes
           echo "Final CLI component size:"
