@@ -6,8 +6,9 @@
 #![allow(missing_docs)]
 
 use crate::{LeafAnswer, Term as ScryerTerm};
-use crate::{Machine as ScryerMachine, MachineBuilder};
+use crate::{Machine as ScryerMachine, MachineBuilder, QueryState as ScryerQueryState};
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -33,10 +34,44 @@ fn next_id() -> u32 {
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+// Type-erased storage for QueryState
+struct StoredQueryState {
+    // Store the actual QueryState with 'static lifetime
+    // This is safe because:
+    // 1. WASI is single-threaded
+    // 2. We ensure the machine isn't dropped while query is active
+    // 3. We properly clean up when QueryStateResource is dropped
+    state: Box<dyn Any>,
+}
+
+impl StoredQueryState {
+    unsafe fn from_query_state<'a>(qs: ScryerQueryState<'a>) -> Self {
+        // Transmute to 'static - safe due to our invariants
+        let static_qs: ScryerQueryState<'static> = std::mem::transmute(qs);
+        StoredQueryState {
+            state: Box::new(static_qs),
+        }
+    }
+    
+    fn as_mut(&mut self) -> &mut ScryerQueryState<'static> {
+        self.state
+            .downcast_mut::<ScryerQueryState<'static>>()
+            .expect("StoredQueryState should always contain QueryState")
+    }
+}
+
+// Machine state with optional active query
+struct MachineState {
+    machine: Rc<RefCell<ScryerMachine>>,
+    // Track the active query for this machine (if any)
+    active_query: Option<(u32, StoredQueryState)>, // (query_id, stored_state)
+}
+
 // Component state management
 struct ComponentState {
-    machines: HashMap<u32, Rc<RefCell<ScryerMachine>>>,
-    query_states: HashMap<u32, Rc<RefCell<QueryStateWrapper>>>,
+    machines: HashMap<u32, Rc<RefCell<MachineState>>>,
+    // Map query IDs to their machine IDs
+    query_to_machine: HashMap<u32, u32>,
     binding_sets: HashMap<u32, Rc<BindingSetData>>,
     term_refs: HashMap<u32, Rc<TermData>>,
 }
@@ -45,7 +80,7 @@ impl Default for ComponentState {
     fn default() -> Self {
         Self {
             machines: HashMap::new(),
-            query_states: HashMap::new(),
+            query_to_machine: HashMap::new(),
             binding_sets: HashMap::new(),
             term_refs: HashMap::new(),
         }
@@ -55,16 +90,6 @@ impl Default for ComponentState {
 // Thread-local storage for component state
 thread_local! {
     static STATE: RefCell<ComponentState> = RefCell::new(ComponentState::default());
-}
-
-// Wrapper for QueryState - redesigned to avoid lifetime issues
-struct QueryStateWrapper {
-    machine: Rc<RefCell<ScryerMachine>>,
-    query: String,
-    // Track the current solution index - we re-run the query and skip to this position
-    solution_index: usize,
-    // Track if we've reached the end of solutions
-    is_exhausted: bool,
 }
 
 // Data for a binding set
@@ -103,10 +128,15 @@ impl GuestMachine for MachineResource {
             // Build machine with bootstrap libraries loaded - this is synchronous
             // The build() method already loads ops_and_meta_predicates and builtins
             let machine = builder.build();
-            let machine_rc = Rc::new(RefCell::new(machine));
+            
+            // Wrap in MachineState with no active query
+            let machine_state = MachineState {
+                machine: Rc::new(RefCell::new(machine)),
+                active_query: None,
+            };
 
             let id = next_id();
-            state.machines.insert(id, machine_rc);
+            state.machines.insert(id, Rc::new(RefCell::new(machine_state)));
 
             MachineResource { id }
         })
@@ -115,13 +145,20 @@ impl GuestMachine for MachineResource {
     fn consult_module_string(&self, module_name: String, program: String) -> Result<(), String> {
         STATE.with(|state| {
             let state = state.borrow_mut();
-            let machine_rc = state
+            let machine_state_rc = state
                 .machines
                 .get(&self.id)
                 .ok_or_else(|| "Machine not found".to_string())?
                 .clone();
 
-            let mut machine = machine_rc.borrow_mut();
+            let mut machine_state = machine_state_rc.borrow_mut();
+            
+            // Cannot consult if there's an active query
+            if machine_state.active_query.is_some() {
+                return Err("Cannot consult module while query is active".to_string());
+            }
+            
+            let mut machine = machine_state.machine.borrow_mut();
 
             // Consult the module - this is synchronous
             machine.consult_module_string(&module_name, program);
@@ -134,24 +171,44 @@ impl GuestMachine for MachineResource {
     fn run_query(&self, query: String) -> Result<QueryState, String> {
         STATE.with(|state| {
             let mut state = state.borrow_mut();
-            let machine_rc = state
+            let machine_state_rc = state
                 .machines
                 .get(&self.id)
                 .ok_or_else(|| "Machine not found".to_string())?
                 .clone();
 
-            // Create a query state wrapper with the new design
-            let wrapper = QueryStateWrapper {
-                machine: machine_rc.clone(),
-                query: query.clone(),
-                solution_index: 0,
-                is_exhausted: false,
-            };
-
+            // We need to handle this in a specific order to manage lifetimes
             let query_id = next_id();
-            state
-                .query_states
-                .insert(query_id, Rc::new(RefCell::new(wrapper)));
+            
+            // This scope ensures proper lifetime management
+            {
+                let mut machine_state = machine_state_rc.borrow_mut();
+                
+                // If there's an active query, we need to clean it up first
+                if let Some((old_query_id, _)) = machine_state.active_query.take() {
+                    // Remove the old query mapping
+                    state.query_to_machine.remove(&old_query_id);
+                }
+                
+                // Get a raw pointer to the machine to bypass borrow checker
+                // This is safe because:
+                // 1. We're single-threaded
+                // 2. We ensure the machine lives as long as the query
+                let machine_ptr = machine_state.machine.as_ptr();
+                let machine_ref = unsafe { &mut *machine_ptr };
+                
+                // Run the query
+                let query_state = machine_ref.run_query(query);
+                
+                // Store the QueryState with extended lifetime
+                let stored_state = unsafe { StoredQueryState::from_query_state(query_state) };
+                
+                // Store the query state in the machine
+                machine_state.active_query = Some((query_id, stored_state));
+            }
+            
+            // Map query ID to machine ID
+            state.query_to_machine.insert(query_id, self.id);
 
             Ok(QueryState::new(QueryStateResource {
                 id: query_id,
@@ -170,61 +227,49 @@ impl GuestQueryState for QueryStateResource {
     fn next(&self) -> Result<Option<Solution>, String> {
         STATE.with(|state| {
             let mut state = state.borrow_mut();
-            let wrapper_rc = state
-                .query_states
+            
+            // Find which machine owns this query
+            let machine_id = *state
+                .query_to_machine
                 .get(&self.id)
-                .ok_or_else(|| "QueryState not found".to_string())?
+                .ok_or_else(|| "QueryState not found".to_string())?;
+            
+            let machine_state_rc = state
+                .machines
+                .get(&machine_id)
+                .ok_or_else(|| "Machine not found".to_string())?
                 .clone();
 
-            let mut wrapper = wrapper_rc.borrow_mut();
-
-            // If already exhausted, return None
-            if wrapper.is_exhausted {
-                return Ok(None);
-            }
-
-            // Get the next solution by re-running the query and skipping to the right position
-            // This avoids the lifetime issue without caching all solutions
-            let query = wrapper.query.clone();
-            let solution_index = wrapper.solution_index;
+            let mut machine_state = machine_state_rc.borrow_mut();
             
-            // Drop the wrapper borrow before borrowing the machine
-            let machine_rc = wrapper.machine.clone();
-            drop(wrapper);
-            
-            // Now we can safely borrow the machine
-            let mut machine = machine_rc.borrow_mut();
-            let mut query_state = machine.run_query(query);
-            
-            // Skip to the solution we want
-            for _ in 0..solution_index {
-                if query_state.next().is_none() {
-                    // Re-borrow wrapper to update state
-                    let mut wrapper = wrapper_rc.borrow_mut();
-                    wrapper.is_exhausted = true;
-                    return Ok(None);
-                }
-            }
-            
-            // Get the next solution
-            match query_state.next() {
-                Some(Ok(leaf_answer)) => {
-                    // Re-borrow wrapper to update the index
-                    let mut wrapper = wrapper_rc.borrow_mut();
-                    wrapper.solution_index += 1;
-                    drop(wrapper);
+            // Check if this query is still active
+            match &mut machine_state.active_query {
+                Some((query_id, stored_state)) if *query_id == self.id => {
+                    // Get the next solution from the stored QueryState
+                    let query_state = stored_state.as_mut();
                     
-                    let solution = convert_leaf_answer(leaf_answer, &mut state);
-                    Ok(Some(solution))
+                    match query_state.next() {
+                        Some(Ok(leaf_answer)) => {
+                            // Need to drop machine_state before calling convert_leaf_answer
+                            // to avoid borrow conflicts
+                            drop(machine_state);
+                            let solution = convert_leaf_answer(leaf_answer, &mut state);
+                            Ok(Some(solution))
+                        }
+                        Some(Err(error)) => {
+                            Err(format!("Query error: {:?}", error))
+                        }
+                        None => {
+                            // Query exhausted, clean up
+                            machine_state.active_query = None;
+                            state.query_to_machine.remove(&self.id);
+                            Ok(None)
+                        }
+                    }
                 }
-                Some(Err(error)) => {
-                    Err(format!("Query error: {:?}", error))
-                }
-                None => {
-                    // Re-borrow wrapper to mark as exhausted
-                    let mut wrapper = wrapper_rc.borrow_mut();
-                    wrapper.is_exhausted = true;
-                    Ok(None)
+                _ => {
+                    // Query is no longer active (was replaced by another query)
+                    Err("Query is no longer active".to_string())
                 }
             }
         })
@@ -465,6 +510,19 @@ impl Drop for MachineResource {
     fn drop(&mut self) {
         STATE.with(|state| {
             let mut state = state.borrow_mut();
+            
+            // Clean up any active query for this machine
+            // Need to clone to avoid borrow issues
+            let query_id_to_remove = state.machines.get(&self.id)
+                .and_then(|machine_state_rc| {
+                    let machine_state = machine_state_rc.borrow();
+                    machine_state.active_query.as_ref().map(|(id, _)| *id)
+                });
+            
+            if let Some(query_id) = query_id_to_remove {
+                state.query_to_machine.remove(&query_id);
+            }
+            
             state.machines.remove(&self.id);
         });
     }
@@ -474,7 +532,19 @@ impl Drop for QueryStateResource {
     fn drop(&mut self) {
         STATE.with(|state| {
             let mut state = state.borrow_mut();
-            state.query_states.remove(&self.id);
+            
+            // Find and clean up this query from its machine
+            if let Some(machine_id) = state.query_to_machine.remove(&self.id) {
+                if let Some(machine_state_rc) = state.machines.get(&machine_id) {
+                    let mut machine_state = machine_state_rc.borrow_mut();
+                    // Only remove if it's still the active query
+                    if let Some((query_id, _)) = &machine_state.active_query {
+                        if *query_id == self.id {
+                            machine_state.active_query = None;
+                        }
+                    }
+                }
+            }
         });
     }
 }
