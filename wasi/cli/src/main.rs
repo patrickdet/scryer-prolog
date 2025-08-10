@@ -205,7 +205,7 @@ fn execute_query(machine: &Machine, query_str: &str) {
                         break;
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
+                        print_error(&e);
                         std::process::exit(1);
                     }
                 }
@@ -274,7 +274,7 @@ fn run_repl(machine: &Machine) {
                         println!("false.");
                     }
                     Err(e) => {
-                        eprintln!("Error: {}", e);
+                        print_error(&e);
                     }
                 }
             }
@@ -319,5 +319,31 @@ fn print_solution(solution: Solution) {
                 }
             }
         }
+    }
+}
+
+fn print_error(error_msg: &str) {
+    // Clean up common error patterns for better UX
+    if error_msg.starts_with("Undefined procedure:") {
+        eprintln!("Error: {}", error_msg);
+        eprintln!("Hint: The predicate might not be defined or imported.");
+    } else if error_msg.starts_with("Undefined") {
+        eprintln!("Error: {}", error_msg);
+        eprintln!("Hint: Check that all predicates are defined before use.");
+    } else if error_msg.contains("Type error") {
+        eprintln!("Error: {}", error_msg);
+        eprintln!("Hint: Check that arguments have the correct types.");
+    } else if error_msg.contains("Instantiation error") {
+        eprintln!("Error: {}", error_msg);
+        eprintln!("Hint: Some variables need to be bound before this operation.");
+    } else if error_msg.contains("Domain error") {
+        eprintln!("Error: {}", error_msg);
+        eprintln!("Hint: The value is outside the expected range.");
+    } else if error_msg.contains("Syntax error") {
+        eprintln!("{}", error_msg);
+        eprintln!("Hint: Check your query syntax - ensure proper parentheses and operators.");
+    } else {
+        // Generic error
+        eprintln!("Error: {}", error_msg);
     }
 }

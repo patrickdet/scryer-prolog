@@ -269,7 +269,9 @@ impl GuestQueryState for QueryStateResource {
                             Ok(Some(solution))
                         }
                         Some(Err(error)) => {
-                            Err(format!("Query error: {:?}", error))
+                            // Format the error in a user-friendly way
+                            let error_msg = format_error_term(&error);
+                            Err(error_msg)
                         }
                         None => {
                             // Query exhausted, clean up
@@ -576,6 +578,113 @@ impl Drop for TermRefResource {
             let mut state = state.borrow_mut();
             state.term_refs.remove(&self.id);
         });
+    }
+}
+
+// Helper function to format error terms in a user-friendly way
+fn format_error_term(term: &ScryerTerm) -> String {
+    if let ScryerTerm::Compound(functor, args) = term {
+        if functor == "error" && args.len() == 2 {
+            // Standard Prolog error term: error(ErrorType, Context)
+            // Handle both compound error types and atom error types
+            match &args[0] {
+                ScryerTerm::Atom(error_type) => {
+                    // Simple error atoms like instantiation_error
+                    match error_type.as_str() {
+                        "instantiation_error" => {
+                            return "Instantiation error: unbound variable in arithmetic or comparison".to_string();
+                        }
+                        _ => {
+                            return format!("Error: {}", error_type);
+                        }
+                    }
+                }
+                ScryerTerm::Compound(error_type, error_args) => {
+                match error_type.as_str() {
+                    "existence_error" => {
+                        if error_args.len() >= 2 {
+                            if let (ScryerTerm::Atom(resource), ScryerTerm::Compound(name, name_args)) = 
+                                (&error_args[0], &error_args[1]) {
+                                if name == "/" && name_args.len() == 2 {
+                                    if let (ScryerTerm::Atom(pred), ScryerTerm::Integer(arity)) = 
+                                        (&name_args[0], &name_args[1]) {
+                                        return format!("Undefined {}: {}/{}", resource, pred, arity);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "type_error" => {
+                        if error_args.len() >= 2 {
+                            if let (ScryerTerm::Atom(expected), culprit) = (&error_args[0], &error_args[1]) {
+                                return format!("Type error: expected {}, got {:?}", expected, culprit);
+                            }
+                        }
+                    }
+                    "instantiation_error" => {
+                        return "Instantiation error: unbound variable in arithmetic or comparison".to_string();
+                    }
+                    "evaluation_error" => {
+                        if error_args.len() >= 1 {
+                            if let ScryerTerm::Atom(error_type) = &error_args[0] {
+                                match error_type.as_str() {
+                                    "zero_divisor" => return "Division by zero error".to_string(),
+                                    "undefined" => return "Evaluation error: undefined arithmetic operation".to_string(),
+                                    "float_overflow" => return "Evaluation error: floating point overflow".to_string(),
+                                    "int_overflow" => return "Evaluation error: integer overflow".to_string(),
+                                    _ => return format!("Evaluation error: {}", error_type),
+                                }
+                            }
+                        }
+                    }
+                    "syntax_error" => {
+                        if error_args.len() >= 1 {
+                            if let ScryerTerm::Atom(msg) = &error_args[0] {
+                                return format!("Syntax error: {}", msg);
+                            }
+                        }
+                    }
+                    "domain_error" => {
+                        if error_args.len() >= 2 {
+                            if let (ScryerTerm::Atom(domain), culprit) = (&error_args[0], &error_args[1]) {
+                                return format!("Domain error: {} is not in domain {}", 
+                                    format_term_simple(culprit), domain);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    // Fallback to debug format if we can't parse the error
+    format!("Runtime error: {:?}", term)
+}
+
+// Helper to format terms simply for error messages
+fn format_term_simple(term: &ScryerTerm) -> String {
+    match term {
+        ScryerTerm::Atom(s) => s.clone(),
+        ScryerTerm::Integer(i) => i.to_string(),
+        ScryerTerm::Float(f) => f.to_string(),
+        ScryerTerm::String(s) => format!("\"{}\"", s),
+        ScryerTerm::Var(v) => v.clone(),
+        ScryerTerm::List(items) => {
+            let items_str: Vec<_> = items.iter().map(format_term_simple).collect();
+            format!("[{}]", items_str.join(", "))
+        }
+        ScryerTerm::Compound(name, args) => {
+            if args.is_empty() {
+                name.clone()
+            } else {
+                let args_str: Vec<_> = args.iter().map(format_term_simple).collect();
+                format!("{}({})", name, args_str.join(", "))
+            }
+        }
+        ScryerTerm::Rational(r) => r.to_string(),
     }
 }
 
